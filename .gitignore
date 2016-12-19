@@ -27,3 +27,5 @@ BOUT.dmp*
 BOUT.restart*
 BOUT.log*
 test*.py
+*.pdf
+

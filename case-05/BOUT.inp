@@ -2,7 +2,7 @@
 #
 # 
 
-NOUT = 100     # number of output time-steps
+NOUT = 400     # number of output time-steps
 TIMESTEP = 5000.  # time between outputs
 
 MZ = 1     # number of points in z direction (2^n + 1)
@@ -10,7 +10,7 @@ MXG = 0    # No guard cells needed in X
 
 [mesh]
 
-ny = 600    # Resolution along field-line
+ny = 200    # Resolution along field-line
 
 length = 25        # Length of the domain in meters
 length_xpt = 12.5  # Length from midplane to X-point [m]
@@ -69,7 +69,7 @@ AA = 2.0      # Ion atomic number
 Eionize = 30  # Energy lost per ionisation [eV]
 
 volume_source = true   # Sources spread over a volume
-density_upstream = -1 #1e19  # Fix upstream density using feedback (<0 = off)
+density_upstream = 1e19  # Fix upstream density using feedback (<0 = off)
 
 density_controller_p = 1e-2 # Density controller 'p' parameter
 density_controller_i = 1e-3 # Density controller 'i' parameter
@@ -77,7 +77,7 @@ density_controller_i = 1e-3 # Density controller 'i' parameter
 # Model parameters
 vwall = 0.0        # Velocity of neutrals at the wall, as fraction of Franck-Condon energy
 
-frecycle = 0.2             # Recycling fraction
+frecycle = 0.95            # Recycling fraction
 fredistribute = 0.0        # Fraction of recycled neutrals redistributed evenly along length
 redist_weight = h(y - pi)  # Weighting for redistribution
 
