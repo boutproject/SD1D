@@ -353,7 +353,7 @@ const Field3D Div_par_FV_FS(const Field3D &f, const Field3D &v, const Field3D &a
         vpar = 0.5*(v(i,j,k) + v(i,j-1,k));
         
         // Maximum wave speed in the two cells
-        amax = BOUTMAX(a(i,j,k), a(i,j+1,k));
+        amax = BOUTMAX(a(i,j,k), a(i,j-1,k));
         
         if(vpar < -amax) {
           // Supersonic out of this cell
