@@ -128,15 +128,6 @@ const Field3D Div_par_FV_FS(const Field3D &f, const Field3D &v, const Field3D &a
  */ 
 const Field3D Div_par_FV3(const Field3D &f, const Field3D &g, const Field3D &v);
 
-
-/*!
- * Finite volume parallel gradient
- * 
- * NOTE: Probably best not to use this
- *
- */ 
-const Field3D Grad_par_FV(const Field3D &f);
-
 /*!
  * 4th-order derivative
  *

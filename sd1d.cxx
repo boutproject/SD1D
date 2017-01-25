@@ -207,9 +207,9 @@ protected:
     LoadMetric(rho_s0, Bnorm);
     
     opt->get("area", area_string, "1.0");
-    mesh->J = ffact.create2D(area_string, Options::getRoot());
+    mesh->coordinates()->J = ffact.create2D(area_string, Options::getRoot());
     
-    dy4 = SQ(SQ(mesh->dy));
+    dy4 = SQ(SQ(mesh->coordinates()->dy));
     
     // Use carbon radiation for the impurity
     rad = new HutchinsonCarbonRadiation();
@@ -315,6 +315,8 @@ protected:
   int rhs(BoutReal time) {
     fprintf(stderr, "\rTime: %e", time);
 
+    Coordinates *coord = mesh->coordinates();
+
     mesh->communicate(Ne, NVi, P);
     
     // Floor small values
@@ -364,7 +366,7 @@ protected:
       // Update diffusion coefficients
       TRACE("Update coefficients");
       
-      tau_e = Omega_ci * tau_e0 * (Te^1.5)/Ne;
+      tau_e = Omega_ci * tau_e0 * pow(Te,1.5)/Ne;
       
       if(heat_conduction) {
         kappa_epar = 3.2 * mi_me * 0.5*P * tau_e;
@@ -374,9 +376,9 @@ protected:
       if(atomic) {
         // Neutral diffusion rate
         
-        for(int i=0;i<mesh->ngx;i++)
-          for(int j=0;j<mesh->ngy;j++)
-            for(int k=0;k<mesh->ngz-1;k++) {
+        for(int i=0;i<mesh->LocalNx;i++)
+          for(int j=0;j<mesh->LocalNy;j++)
+            for(int k=0;k<mesh->LocalNz;k++) {
               // Charge exchange frequency, normalised to ion cyclotron frequency
               BoutReal sigma_cx = Nelim(i,j,k)*Nnorm*hydrogen.chargeExchange(Te(i,j,k)*Tnorm)/Omega_ci;
               
@@ -442,7 +444,7 @@ protected:
       if( sheath_density_drop ) {
         // Zero gradient particle flux N*Vi* J*dx*dz
         // Since Vi increases into the sheath, density should drop
-        Nout = Ne(r.ind, mesh->yend, jz) * mesh->J(r.ind, mesh->yend) * Vi(r.ind, mesh->yend, jz) / (0.5*(mesh->J(r.ind, mesh->yend) + mesh->J(r.ind, mesh->yend+1)) * Vout);
+        Nout = Ne(r.ind, mesh->yend, jz) * coord->J(r.ind, mesh->yend) * Vi(r.ind, mesh->yend, jz) / (0.5*(coord->J(r.ind, mesh->yend) +coord->J(r.ind, mesh->yend+1)) * Vout);
       }else {
         // Free boundary on density (constant gradient)
         Nout = 0.5*( 3.*Ne(r.ind, mesh->yend, jz) - Ne(r.ind, mesh->yend-1, jz) );
@@ -466,14 +468,14 @@ protected:
         BoutReal q = (sheath_gamma - 6) * Te(r.ind, mesh->yend, jz) * flux;
         
         // Multiply by cell area to get power
-        BoutReal heatflux = q * (mesh->J(r.ind, mesh->yend)+mesh->J(r.ind, mesh->yend+1))/(sqrt(mesh->g_22(r.ind, mesh->yend)) + sqrt(mesh->g_22(r.ind, mesh->yend+1)));
+        BoutReal heatflux = q * (coord->J(r.ind, mesh->yend)+coord->J(r.ind, mesh->yend+1))/(sqrt(coord->g_22(r.ind, mesh->yend)) + sqrt(coord->g_22(r.ind, mesh->yend+1)));
         
         // Divide by volume of cell, and 2/3 to get pressure
-        ddt(P)(r.ind, mesh->yend, jz) -= (2./3)*heatflux / (mesh->dy(r.ind, mesh->yend)*mesh->J(r.ind, mesh->yend));
+        ddt(P)(r.ind, mesh->yend, jz) -= (2./3)*heatflux / (coord->dy(r.ind, mesh->yend)*coord->J(r.ind, mesh->yend));
       }
       
       // Set boundary half-way between cells
-      for(int jy=mesh->yend+1; jy<mesh->ngy; jy++) {
+      for(int jy=mesh->yend+1; jy<mesh->LocalNy; jy++) {
         
         ///// Plasma model
         
@@ -523,10 +525,10 @@ protected:
               BoutReal q = neutral_gamma * Nnout * Tn(r.ind, jy, jz) * sqrt(Tn(r.ind, jy, jz));
               
               // Multiply by cell area to get power
-              BoutReal heatflux = q * (mesh->J(r.ind, mesh->yend)+mesh->J(r.ind, mesh->yend+1))/(sqrt(mesh->g_22(r.ind, mesh->yend)) + sqrt(mesh->g_22(r.ind, mesh->yend+1)));
+              BoutReal heatflux = q * (coord->J(r.ind, mesh->yend)+coord->J(r.ind, mesh->yend+1))/(sqrt(coord->g_22(r.ind, mesh->yend)) + sqrt(coord->g_22(r.ind, mesh->yend+1)));
               
               // Divide by volume of cell, and 2/3 to get pressure
-              ddt(Pn)(r.ind, mesh->yend, jz) -= (2./3)*heatflux / (mesh->dy(r.ind, mesh->yend)*mesh->J(r.ind, mesh->yend));
+              ddt(Pn)(r.ind, mesh->yend, jz) -= (2./3)*heatflux / (coord->dy(r.ind, mesh->yend)*coord->J(r.ind, mesh->yend));
             }
           }else {
             Tn(r.ind, jy, jz) = Te(r.ind, jy, jz);
@@ -540,7 +542,7 @@ protected:
     for(RangeIterator r=mesh->iterateBndryLowerY(); !r.isDone(); r++) {
       // No-flow boundary condition on left boundary
       
-      for(int jz=0; jz<mesh->ngz-1; jz++) {
+      for(int jz=0; jz<mesh->LocalNz; jz++) {
         for(int jy=0; jy<mesh->ystart; jy++) {
           Te(r.ind, jy, jz) = Te(r.ind, mesh->ystart, jz);
           Ne(r.ind, jy, jz) = Ne(r.ind, mesh->ystart, jz);
@@ -606,7 +608,7 @@ protected:
           // so that the density boundary does not contribute to energy balance.
           
           // Calculate needed input velocity
-          BoutReal Vin = source * sqrt(mesh->g_22(r.ind, mesh->ystart))*mesh->dy(r.ind, mesh->ystart) / Ne(r.ind, mesh->ystart, jz);
+          BoutReal Vin = source * sqrt(coord->g_22(r.ind, mesh->ystart))*coord->dy(r.ind, mesh->ystart) / Ne(r.ind, mesh->ystart, jz);
           
           // Limit at sound speed
           BoutReal cs = sqrt(Te(r.ind, mesh->ystart, jz));
@@ -620,7 +622,7 @@ protected:
           
           // Subtract input energy flux from P equation
           // so no net power input
-          ddt(P)(r.ind, mesh->ystart, jz) -= (2./3)*inputflux / ( mesh->dy(r.ind, mesh->ystart) * sqrt(mesh->g_22(r.ind, mesh->ystart)));
+          ddt(P)(r.ind, mesh->ystart, jz) -= (2./3)*inputflux / ( coord->dy(r.ind, mesh->ystart) * sqrt(coord->g_22(r.ind, mesh->ystart)));
         }
       }
 
@@ -651,9 +653,9 @@ protected:
       // Lower floor on Nn for atomic rates
       Field3D Nnlim2 = floor(Nn, 0.0);
       
-      for(int i=0;i<mesh->ngx;i++)
+      for(int i=0;i<mesh->LocalNx;i++)
         for(int j=mesh->ystart;j<=mesh->yend;j++)
-          for(int k=0;k<mesh->ngz-1;k++) {
+          for(int k=0;k<mesh->LocalNz;k++) {
             
             // Integrate rates over each cell using Simpson's rule
             // Calculate cell centre (C), left (L) and right (R) values
@@ -666,7 +668,7 @@ protected:
             BoutReal Vn_C = Vn(i,j,k), Vn_L = 0.5*(Vn(i,j-1,k) + Vn(i,j,k)), Vn_R = 0.5*(Vn(i,j,k) + Vn(i,j+1,k));
 
             // Jacobian (Cross-sectional area)
-            BoutReal J_C = mesh->J(i,j), J_L = 0.5*(mesh->J(i,j-1) + mesh->J(i,j)), J_R = 0.5*(mesh->J(i,j) + mesh->J(i,j+1));
+            BoutReal J_C = coord->J(i,j), J_L = 0.5*(coord->J(i,j-1) + coord->J(i,j)), J_R = 0.5*(coord->J(i,j) + coord->J(i,j+1));
             
             ///////////////////////////////////////
             // Charge exchange
@@ -845,13 +847,6 @@ protected:
           - Div_par_FV(NVi, Vi) // Momentum flow
           - Grad_par(P)
           ;
-      }else if(momentum_form == 2) {
-        // Flux form for flow
-        // slope limited for pressure gradient
-        ddt(NVi) = 
-          - Div_par_FV(NVi, Vi) // Momentum flow
-          - Grad_par_FV(P)      // Pressure gradient
-          ;
       }else if(momentum_form == 3) {
         // FE splitting of flux
         // central differencing pressure
@@ -936,13 +931,6 @@ protected:
           - Div_par_FV(P, Vi)         // Advection
           - (2./3)*P*Div_par(Vi)      // Compression
           ;
-      }else if(energy_form == 2) {
-        // Upwinding fluxes for advection,
-        // slope limited for compression
-        ddt(P) += 
-          - (5./3)*Div_par_FV(P, Vi)    // Advection
-          + (2./3)*Vi*Grad_par_FV(P)    // Compression
-          ;
       }else if(energy_form == 3) {
         // FE splitting of central difference advection
         // Central differencing compression, grad_par form
@@ -1001,8 +989,8 @@ protected:
       }else {
         // Insert power into the first grid point
         for(RangeIterator r=mesh->iterateBndryLowerY(); !r.isDone(); r++)
-          for(int jz=0; jz<mesh->ngz-1; jz++) {
-            ddt(P)(r.ind, mesh->ystart, jz) += (2./3)*powerflux / ( mesh->dy(r.ind, mesh->ystart) * sqrt(mesh->g_22(r.ind, mesh->ystart)));
+          for(int jz=0; jz<mesh->LocalNz; jz++) {
+            ddt(P)(r.ind, mesh->ystart, jz) += (2./3)*powerflux / ( coord->dy(r.ind, mesh->ystart) * sqrt(coord->g_22(r.ind, mesh->ystart)));
           }
       }
     }
@@ -1031,9 +1019,9 @@ protected:
     }
 
     // Switch off evolution at very low densities
-    for(int i=0;i<mesh->ngx;i++)
+    for(int i=0;i<mesh->LocalNx;i++)
       for(int j=mesh->ystart;j<=mesh->yend;j++)
-        for(int k=0;k<mesh->ngz-1;k++) {
+        for(int k=0;k<mesh->LocalNz;k++) {
           if((Ne(i,j,k) < 1e-5) && (ddt(Ne)(i,j,k) < 0.0)) {
             ddt(Ne)(i,j,k) = 0.0;
             ddt(NVi)(i,j,k) = 0.0;
@@ -1093,7 +1081,7 @@ protected:
         if(rhs_implicit) {
           if(viscos > 0.) {
             // Note no factor of Nn
-            ddt(NVn) += Div_par_diffusion(viscos*SQ(mesh->dy), Vn);
+            ddt(NVn) += Div_par_diffusion(viscos*SQ(coord->dy), Vn);
           }
           
           if(hyper > 0.) {
@@ -1146,9 +1134,9 @@ protected:
         // Switch off evolution at very low densities
         // This seems to be necessary to get through initial transients
         
-        for(int i=0;i<mesh->ngx;i++)
+        for(int i=0;i<mesh->LocalNx;i++)
           for(int j=mesh->ystart;j<=mesh->yend;j++)
-            for(int k=0;k<mesh->ngz-1;k++) {
+            for(int k=0;k<mesh->LocalNz;k++) {
               if(Nn(i,j,k) < 1e-5) {
                 // Relax to the plasma temperature
                 ddt(Pn)(i,j,k) = -1e-2*(Pn(i,j,k) - Te(i,j,k)*Nn(i,j,k));
@@ -1167,12 +1155,12 @@ protected:
           int jz = 0; // Z index
           int jy = mesh->yend;
           //flux_ion = 0.0;
-          flux_ion = 0.25*(Ne(r.ind, jy, jz) + Ne(r.ind, jy+1, jz)) * (Vi(r.ind, jy, jz) + Vi(r.ind, jy+1, jz)) * (mesh->J(r.ind,jy) + mesh->J(r.ind,jy+1)) / (sqrt(mesh->g_22(r.ind,jy))+ sqrt(mesh->g_22(r.ind,jy+1)));
+          flux_ion = 0.25*(Ne(r.ind, jy, jz) + Ne(r.ind, jy+1, jz)) * (Vi(r.ind, jy, jz) + Vi(r.ind, jy+1, jz)) * (coord->J(r.ind,jy) + coord->J(r.ind,jy+1)) / (sqrt(coord->g_22(r.ind,jy))+ sqrt(coord->g_22(r.ind,jy+1)));
           BoutReal flux_neut = 0.0;
           
-          for(int j = mesh->yend+1; j<mesh->ngy; j++) {
-            //flux_ion += ddt(Ne)(r.ind, j, jz) * mesh->J(r.ind,j) * mesh->dy(r.ind,j);        
-            flux_neut += ddt(Nn)(r.ind, j, jz) * mesh->J(r.ind,j) * mesh->dy(r.ind,j);
+          for(int j = mesh->yend+1; j<mesh->LocalNy; j++) {
+            //flux_ion += ddt(Ne)(r.ind, j, jz) * coord->J(r.ind,j) * coord->dy(r.ind,j);        
+            flux_neut += ddt(Nn)(r.ind, j, jz) * coord->J(r.ind,j) * coord->dy(r.ind,j);
             
             ddt(Ne)(r.ind, j, jz) = 0.0;
             ddt(Nn)(r.ind, j, jz) = 0.0;
@@ -1184,7 +1172,7 @@ protected:
           BoutReal nadd = flux_ion*frecycle + flux_neut + gaspuff;
           
           // Neutral gas arriving at the target
-          BoutReal ntarget = (1 - fredistribute) * nadd / ( mesh->J(r.ind,mesh->yend) * mesh->dy(r.ind,mesh->yend) );
+          BoutReal ntarget = (1 - fredistribute) * nadd / ( coord->J(r.ind,mesh->yend) * coord->dy(r.ind,mesh->yend) );
           
           ddt(Nn)(r.ind, mesh->yend, jz) += ntarget;
           
@@ -1204,7 +1192,7 @@ protected:
           nredist = fredistribute * nadd;
           
           // Divide flux_ion by J so that the result in the output file has units of flux per m^2
-          flux_ion /= mesh->J(mesh->xstart, mesh->yend+1);
+          flux_ion /= coord->J(mesh->xstart, mesh->yend+1);
         }
         // Now broadcast redistributed neutrals to other processors
         MPI_Comm ycomm = mesh->getYcomm(mesh->xstart); // MPI communicator
@@ -1217,7 +1205,7 @@ protected:
         // Distribute along length
         for(int j=mesh->ystart;j<=mesh->yend;j++) {
           // Neutrals into this cell
-          BoutReal ncell = nredist * redist_weight(mesh->xstart,j) / ( mesh->J(mesh->xstart,j) * mesh->dy(mesh->xstart,j) );
+          BoutReal ncell = nredist * redist_weight(mesh->xstart,j) / ( coord->J(mesh->xstart,j) * coord->dy(mesh->xstart,j) );
           
           ddt(Nn)(mesh->xstart, j, 0) += ncell;
           
@@ -1301,6 +1289,8 @@ protected:
       // Calculate the maximum velocity, including cell centres
       // and edges.
       
+      Coordinates *coord = mesh->coordinates();
+
       BoutReal maxabsvc = 0.0; // Maximum absolute velocity + sound speed
       BoutReal maxinvdt = 0.0; // Maximum 1/dt
       for(int j=mesh->ystart;j<=mesh->yend;j++) {
@@ -1313,7 +1303,7 @@ protected:
         if(vcs > maxabsvc)
           maxabsvc = vcs;
         
-        BoutReal dl = mesh->dy(0,j) * sqrt(mesh->g_22(0,j)); // Length of cell
+        BoutReal dl = coord->dy(0,j) * sqrt(coord->g_22(0,j)); // Length of cell
         if( vcs/dl > maxinvdt )
           maxinvdt = vcs/dl;
         
@@ -1325,7 +1315,7 @@ protected:
         if(vcs > maxabsvc)
           maxabsvc = vcs;
         
-        dl = 0.5*(mesh->dy(0,j) * sqrt(mesh->g_22(0,j)) + mesh->dy(0,j-1) * sqrt(mesh->g_22(0,j-1)));
+        dl = 0.5*(coord->dy(0,j) * sqrt(coord->g_22(0,j)) + coord->dy(0,j-1) * sqrt(coord->g_22(0,j-1)));
         
         if( vcs/dl > maxinvdt )
           maxinvdt = vcs/dl;
@@ -1338,7 +1328,7 @@ protected:
         if(vcs > maxabsvc)
           maxabsvc = vcs;
 
-        dl = 0.5*(mesh->dy(0,j) * sqrt(mesh->g_22(0,j)) + mesh->dy(0,j+1) * sqrt(mesh->g_22(0,j+1)));
+        dl = 0.5*(coord->dy(0,j) * sqrt(coord->g_22(0,j)) + coord->dy(0,j+1) * sqrt(coord->g_22(0,j+1)));
         
         if( vcs/dl > maxinvdt )
           maxinvdt = vcs/dl;
@@ -1464,13 +1454,13 @@ private:
   BoutReal hyper, viscos;     // Numerical dissipation terms
   BoutReal ADpar;             // Added Dissipation numerical term
   
-  Field2D dy4;   // SQ(SQ(mesh->dy)) cached to avoid recalculating
+  Field2D dy4;   // SQ(SQ(coord->dy)) cached to avoid recalculating
   
   // Numerical diffusion
   const Field3D D(const Field3D &f, BoutReal d) {
     if(d < 0.0)
       return 0.0;
-    return Div_par_diffusion(d*SQ(mesh->dy), f);
+    return Div_par_diffusion(d*SQ(mesh->coordinates()->dy), f);
     //return -D4DY4_FV(d*dy4,f);
   }
   

@@ -14,10 +14,9 @@ const Field3D RadiatedPower::power(const Field3D &Te, const Field3D &Ne, const F
   Field3D result;
   result.allocate();
   
-  for(int i=0;i<mesh->ngx;i++)
-    for(int j=0;j<mesh->ngy;j++)
-      for(int k=0;k<mesh->ngz;k++)
-        result(i,j,k) = power(Te(i,j,k), Ne(i,j,k), Ni(i,j,k));
+  for(const auto& i : result) {
+    result[i] = power(Te[i], Ne[i], Ni[i]);
+  }
   
   return result;
 }
