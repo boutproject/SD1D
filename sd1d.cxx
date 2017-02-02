@@ -64,7 +64,8 @@ protected:
     OPTION(opt, vwall, 1./3);   // 1/3rd Franck-Condon energy at wall
     OPTION(opt, frecycle, 1.0); // Recycling fraction 100%
     OPTION(opt, fredistribute, 0.0); // Fraction of neutrals redistributed evenly along leg
-    OPTION(opt, sheath_density_drop, true); // Does density drop at the sheath?
+    OPTION(opt, density_sheath, 0); // Free boundary
+    OPTION(opt, pressure_sheath, 0); // Free boundary
     OPTION(opt, gaspuff,  0.0); // Additional gas flux at target
     OPTION(opt, dneut, 1.0);    // Scale neutral gas diffusion
     OPTION(opt, nloss, 0.0);    // Neutral gas loss rate
@@ -439,15 +440,24 @@ protected:
         Vout = Vi(r.ind, mesh->yend, jz); // If plasma is faster, go to plasma velocity
       
       BoutReal Nout;
-      if( sheath_density_drop ) {
+      switch( density_sheath ) {
+      case 0: {
+        // Free boundary on density (constant gradient)
+        Nout = 0.5*( 3.*Ne(r.ind, mesh->yend, jz) - Ne(r.ind, mesh->yend-1, jz) );
+        break;
+      }
+      case 1: {
+        // Zero gradient
+        Nout = Ne(r.ind, mesh->yend, jz); 
+        break;
+      }
+      case 2: {
         // Zero gradient particle flux N*Vi* J*dx*dz
         // Since Vi increases into the sheath, density should drop
         Nout = Ne(r.ind, mesh->yend, jz) * mesh->J(r.ind, mesh->yend) * Vi(r.ind, mesh->yend, jz) / (0.5*(mesh->J(r.ind, mesh->yend) + mesh->J(r.ind, mesh->yend+1)) * Vout);
-      }else {
-        // Free boundary on density (constant gradient)
-        Nout = 0.5*( 3.*Ne(r.ind, mesh->yend, jz) - Ne(r.ind, mesh->yend-1, jz) );
-        // Zero gradient
-        //Nout = Ne(r.ind, mesh->yend, jz); 
+        break;
+      }
+      default: throw BoutException("Unrecognised density_sheath option");
       }
       
       if(Nout < 0.0)
@@ -455,12 +465,33 @@ protected:
       
       // Flux of particles is Ne*Vout
       BoutReal flux = Nout * Vout;
+      
+      BoutReal Pout;
+      
+      switch( pressure_sheath ) {
+      case 0: {
+        // Free boundary  (constant gradient)
+        Pout = 0.5*( 3.*P(r.ind, mesh->yend, jz) - P(r.ind, mesh->yend-1, jz) );
+        break;
+      }
+      case 1: {
+        // Zero gradient
+        Pout = P(r.ind, mesh->yend, jz); 
+        break;
+      }
+      case 2: {
+        // Use energy flux conservation to set pressure
+        // (5/2)Pv + (1/2)nv^3 = const
+        // 
+        Pout = ((5.*P(r.ind,mesh->yend,jz)*Vi(r.ind,mesh->yend,jz) + Ne(r.ind,mesh->yend,jz)*pow(Vi(r.ind,mesh->yend,jz),3))/Vout - Nout*Vout*Vout)/5.;
+        break;
+      }
+      default: throw BoutException("Unrecognised pressure_sheath option");
+      }
 
-      // Use energy flux conservation to set pressure
-      // (5/2)Pv + (1/2)nv^3 = const
-      // 
-      BoutReal Pout = ((5.*P(r.ind,mesh->yend,jz)*Vi(r.ind,mesh->yend,jz) + Ne(r.ind,mesh->yend,jz)*pow(Vi(r.ind,mesh->yend,jz),3))/Vout - Nout*Vout*Vout)/5.;
-
+      if(Pout < 0.0)
+        Pout = 0.0;
+      
       if(rhs_explicit) {
         // Additional cooling
         BoutReal q = (sheath_gamma - 6) * Te(r.ind, mesh->yend, jz) * flux;
@@ -483,8 +514,6 @@ protected:
         // Ne set from flux (Dirichlet)
         Ne(r.ind, jy, jz)  = 2*Nout - Ne(r.ind, mesh->yend, jz);
         
-        
-
         // NVi. This can be negative, so set this to the flux
         // going out of the domain (zero gradient)
         NVi(r.ind, jy, jz) = Nout * Vout;
@@ -494,9 +523,7 @@ protected:
         // Te zero gradient (Neumann)
         Te(r.ind, jy, jz) = Te(r.ind, mesh->yend, jz);
         
-        //P(r.ind, jy, jz)   = 2. * Ne(r.ind, jy, jz) * Te(r.ind, jy, jz);
-        P(r.ind, jy, jz)   = 2.*P(r.ind, mesh->yend, jz) - P(r.ind, mesh->yend-1, jz); // Free boundary
-        //P(r.ind, jy, jz) = 2.*Pout - P(r.ind, mesh->yend, jz);
+        P(r.ind, jy, jz) = 2.*Pout - P(r.ind, mesh->yend, jz);
         
         if(atomic) {
           ///// Neutral model
@@ -1427,8 +1454,8 @@ private:
   BoutReal sheath_gamma;   // Sheath heat transmission factor
   BoutReal neutral_gamma;  // Neutral heat transmission
   
-  bool sheath_density_drop; // Does density fall at the sheath?
-                            // True->Flux constant. False->Free boundary
+  int density_sheath; // How to handle density boundary?
+  int pressure_sheath; // How to handle pressure boundary?
 
   BoutReal frecycle; // Recycling fraction
   BoutReal gaspuff;  // Additional source of neutral gas at the target plate

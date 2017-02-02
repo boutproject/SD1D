@@ -253,14 +253,46 @@ Boundary conditions are applied to the velocity and the heat flux:
   \end{equation}
 \end{itemize}
 
-Free boundaries are used for the pressure and density, linearly extrapolating the value from
-inside the domain
-\begin{equation}
-  n_{-1} = 2n_{-2} - n_{-3}
-\end{equation}
-
-If the sheath velocity is subsonic, then waves can propagate in from the boundary. Their domain
+Note: If the sheath velocity is subsonic, then waves can propagate in from the boundary. Their domain
 of dependence is outside the simulation domain, so these waves can cause numerical instabilities.
+
+Several boundary conditions are available for the density and pressure, including free boundaries
+and Neumann (zero gradient). These are controlled by settings \texttt{density\_sheath} and \texttt{pressure\_sheath}.
+Density can have the following values:
+\begin{enumerate}
+\setcounter{enumi}{-1}
+\item Free boundary, linearly extrapolating the value from
+  inside the domain
+  \begin{equation}
+    n_{-1} = 2n_{-2} - n_{-3}
+  \end{equation}
+\item Neumann (zero gradient)
+  \begin{equation}
+    n_{-1} = n_{-2}
+  \end{equation}
+\item Constant flux
+  \begin{equation}
+    n_{-1/2} = n_{-2}v_{-2}J_{-2} / \left( v_s J_{-1/2} \right)
+  \end{equation}
+  where the Jacobian factors $J$ account for a changing flux tube cross-section area.
+\end{enumerate}
+Pressure can have the following values:
+\begin{enumerate}
+\setcounter{enumi}{-1}
+\item Free boundary, linearly extrapolating the value from
+  inside the domain
+  \begin{equation}
+    p_{-1} = 2p_{-2} - p_{-3}
+  \end{equation}
+\item Neumann (zero gradient)
+  \begin{equation}
+    p_{-1} = p_{-2}
+  \end{equation}
+\item Constant energy flux $\frac{5}{2}pv + \frac{1}{2}nv^3$
+  \begin{equation}
+   5 p_{-1/2} = \left( 5p_{-2}v_{-2} + n_{-2}v_{-2}^3\right) / v_s - n_{-1/2}v_s^2
+  \end{equation}
+\end{enumerate}
 
 \section{Sources and transfer terms}
 

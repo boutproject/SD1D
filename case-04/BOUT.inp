@@ -87,8 +87,9 @@ nloss    = 1e3     # Neutral gas loss rate [1/s]
 fimp = -1         # Impurity fraction
 
 sheath_gamma = 6 # Sheath heat transmission
-sheath_density_drop = false #false # Enforce constant flux. False = free boundary
 neutral_gamma = 0.  # Neutral gas heat transmission
+density_sheath = 0  # 0 = free, 1 = Neumann, 2 = constant nV
+pressure_sheath = 0  # 0 = free, 1 = Neumann, 2 = constant (5/2)Pv + (1/2)nv^3
 
 atomic = true      # Include atomic processes (CX/iz/rc)
 
