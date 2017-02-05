@@ -15,7 +15,7 @@ Released under the GPL license
 Installing BOUT++
 -----------------
 
-Tested with BOUT++ commit 11e8f23624b90
+Tested with BOUT++ commit 11e8f23624b90. Should work with BOUT++ up to and including [v3.1](https://github.com/boutproject/BOUT-dev/releases/tag/v3.1).
 
     git clone https://github.com/boutproject/BOUT-dev.git
     cd BOUT-dev
