@@ -15,11 +15,10 @@ Released under the GPL license
 Installing BOUT++
 -----------------
 
-Tested with BOUT++ commit 11e8f23624b90. Should work with BOUT++ up to and including [v3.1](https://github.com/boutproject/BOUT-dev/releases/tag/v3.1).
+This version works with BOUT++ v4.0 or later
 
     git clone https://github.com/boutproject/BOUT-dev.git
     cd BOUT-dev
-    git checkout 11e8f23624b90
 
 To run this model, preconditioning is strongly recommended, and requires the CVODE solver, part of [SUNDIALS](http://computation.llnl.gov/projects/sundials).
 Tested with version 2.6.0. To enable CVODE, BOUT++ should be configured using
