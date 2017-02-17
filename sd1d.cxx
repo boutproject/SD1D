@@ -154,6 +154,8 @@ protected:
       // Controller
       OPTION(opt, density_controller_p, 1e-2);
       OPTION(opt, density_controller_i, 1e-3);
+      OPTION(opt, density_integral_positive, false);
+      OPTION(opt, density_source_positive, true);
 
       density_error_lasttime = -1.0;  // Signal no value
 
@@ -415,7 +417,7 @@ protected:
               }
               
               // Neutral gas heat conduction
-              kappa_n(i,j,k) = Nnlim(i,j,k) * SQ(vth_n) / sigma;
+              kappa_n(i,j,k) = dneut * Nnlim(i,j,k) * SQ(vth_n) / sigma;
             }
         
         kappa_n.applyBoundary("Neumann");
@@ -617,6 +619,10 @@ protected:
             0.5*(error + density_error_last);
         }
         
+        if((density_error_integral < 0.0) && density_integral_positive) {
+          // Limit density_error_integral to be >= 0
+          density_error_integral = 0.0;
+        }
         
         // Calculate source from combination of error and integral
         source = density_controller_p * error + density_controller_i * density_error_integral;
@@ -654,8 +660,9 @@ protected:
       }
 
       if(volume_source) {
-        if(source < 0.0)
+        if((source < 0.0) && density_source_positive) {
           source = 0.0; // Don't remove particles
+        }
         
         // Broadcast the value of source from processor 0
         MPI_Bcast(&source, 1, MPI_DOUBLE, 0, BoutComm::get());
@@ -1271,12 +1278,21 @@ protected:
       ddt(P) = inv->solve(dT);
     }
     
-    if(atomic && evolve_pn) {
-      // Neutral pressure
-      inv->setCoefB(-(2./3)*gamma*kappa_n);
-      Field3D dT = ddt(Pn);
-      dT.applyBoundary("neumann");
-      ddt(Pn) = inv->solve(dT);
+    if (atomic) {
+      if (evolve_pn) {
+        // Neutral pressure
+        inv->setCoefB(-(2./3)*gamma*kappa_n);
+        Field3D dT = ddt(Pn);
+        dT.applyBoundary("neumann");
+        ddt(Pn) = inv->solve(dT);
+      }
+      
+      if (dneut > 0.0) {
+        inv->setCoefB(-gamma*Dn);
+        Field3D tmp = ddt(Nn);
+        tmp.applyBoundary("neumann");
+        ddt(Nn) = inv->solve(tmp);
+      }
     }
 
     return 0;
@@ -1469,7 +1485,9 @@ private:
   // Upstream density controller
   BoutReal density_upstream;   // The desired density at the lower Y (upstream) boundary
   BoutReal density_controller_p, density_controller_i; // Controller settings
-  
+  bool density_integral_positive; // Limit the i term to be positive
+  bool density_source_positive; // Limit the source to be positive
+
   BoutReal density_error_lasttime, density_error_last; // Value and time of last error
   BoutReal density_error_integral; // Integral of error
   
