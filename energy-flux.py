@@ -123,6 +123,8 @@ def energy_flux(path, tind=-1):
 if __name__ == "__main__":
 
     import sys
+    import matplotlib
+    matplotlib.rcParams.update({'font.size': 20})
     import matplotlib.pyplot as plt
 
 
@@ -145,4 +147,8 @@ if __name__ == "__main__":
     plt.xlabel("Position [m]")
     plt.ylabel(r"Heat flux [W/m$^2$]")
     plt.legend(loc="best")
+
+    plt.savefig("energy-flux.pdf")
+    plt.savefig("energy-flux.png")
+    
     plt.show()
