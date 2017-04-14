@@ -92,6 +92,7 @@ protected:
     OPTION(opt, viscos, -1);           // Parallel viscosity
     OPTION(opt, ion_viscosity, false); // Braginskii parallel viscosity
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
+    OPTION(opt, elastic_scattering, false); // Include ion-neutral elastic scattering?
     
     OPTION(opt, density_form, 4);
     OPTION(opt, momentum_form, 6);
@@ -235,6 +236,10 @@ protected:
         SAVE_REPEAT3(Frec,Fiz,Fcx);   // Save momentum sources
         SAVE_REPEAT3(Rrec,Riz,Rzrad); // Save radiation sources
         SAVE_REPEAT3(Erec,Eiz,Ecx);   // Save energy transfer
+
+        if(elastic_scattering) {
+          SAVE_REPEAT2(Fel, Eel); // Elastic collision transfer channels
+        }
         
         if(evolve_nvn) {
           SAVE_REPEAT(Vn);
@@ -250,9 +255,9 @@ protected:
     kappa_epar = 0.0;
 
     Srec = 0.0; Siz = 0.0; S = 0.0;
-    Frec = 0.0; Fiz = 0.0; Fcx = 0.0;   F = 0.0;
+    Frec = 0.0; Fiz = 0.0; Fcx = 0.0; Fel = 0.0;  F = 0.0;
     Rrec = 0.0; Riz = 0.0; Rzrad = 0.0; R = 0.0;
-    Erec = 0.0; Eiz = 0.0; Ecx = 0.0;   E = 0.0;
+    Erec = 0.0; Eiz = 0.0; Ecx = 0.0; Eel = 0.0;  E = 0.0;
     
     flux_ion = 0.0;
     
@@ -788,7 +793,41 @@ protected:
                            + 4.* J_C * R_iz_C
                            +     J_R * R_iz_R
                             ) / (6. * J_C);
+            
+            if(elastic_scattering) {
+              /////////////////////////////////////////////////////////
+              // Ion-neutral elastic scattering
+              //
+              // Post "A Review of Recent Developments in Atomic Processes for Divertors and Edge Plasmas" PSI review paper
+              //       https://arxiv.org/pdf/plasm-ph/9506003.pdf
+              // Relative velocity of two particles in a gas
+              // is sqrt(8kT/pi mu) where mu = m_A*m_B/(m_A+m_B)
+              // here ions and neutrals have same mass,
+              // and the ion temperature is used
+              
+              BoutReal a0 = 3e-19; // Effective cross-section [m^2]
 
+              // Rates (normalised)
+              BoutReal R_el_L = a0*Ne_L*Nn_L*Cs0*sqrt((16./PI)*Te_L) * Nnorm/Omega_ci;
+              BoutReal R_el_C = a0*Ne_C*Nn_C*Cs0*sqrt((16./PI)*Te_C) * Nnorm/Omega_ci;
+              BoutReal R_el_R = a0*Ne_R*Nn_R*Cs0*sqrt((16./PI)*Te_R) * Nnorm/Omega_ci;
+
+              // Elastic transfer of momentum
+              Fel(i,j,k) = (
+                               J_L * (Vi_L - Vn_L)*R_el_L
+                          + 4.*J_C * (Vi_C - Vn_C)*R_el_C
+                          +    J_R * (Vi_R - Vn_R)*R_el_R
+                          ) / (6. * J_C);
+
+              // Elastic transfer of thermal energy
+              Eel(i,j,k) = (3./2)* (
+                                       J_L * (Te_L - Tn_L)*R_el_L
+                                  + 4.*J_C * (Te_C - Tn_C)*R_el_C
+                                  +    J_R * (Te_R - Tn_R)*R_el_R
+                                  ) / (6. * J_C);
+            }
+            
+            
             // Total energy lost from system
             R(i,j,k) = Rzrad(i,j,k)     // Radiated power from impurities
                      + Rrec(i,j,k)      // Recombination
@@ -797,15 +836,19 @@ protected:
             // Total energy transferred to neutrals
             E(i,j,k) = Ecx(i,j,k)       // Charge exchange
                      + Erec(i,j,k)      // Recombination
-                     + Eiz(i,j,k);      // ionisation
+                     + Eiz(i,j,k)       // ionisation
+                     + Eel(i,j,k);      // Elastic collisions 
 
             // Total friction
-            F(i,j,k) = Frec(i,j,k) + Fiz(i,j,k) + Fcx(i,j,k);
+            F(i,j,k) = Frec(i,j,k)      // Recombination
+                     + Fiz(i,j,k)       // Ionisation
+                     + Fcx(i,j,k)       // Charge exchange 
+                     + Fel(i,j,k);      // Elastic collisions
 
             // Total sink of plasma, source of neutrals
             S(i,j,k) = Srec(i,j,k) + Siz(i,j,k);
           }
-      
+        
       if(!evolve_nvn && neutral_f_pn) {
         // Not evolving neutral momentum
         F = Grad_par(Pn);
@@ -1424,6 +1467,7 @@ private:
   Field3D eta_i;        // Braginskii ion viscosity
   bool ion_viscosity;   // Braginskii ion viscosity on/off
   bool heat_conduction; // Thermal conduction on/off
+  bool elastic_scattering; // Ion-neutral elastic scattering
   
   int density_form;     // Form of the density equation
   int momentum_form;    // Form of the momentum equation
@@ -1439,9 +1483,9 @@ private:
   bool atomic;     // Include atomic physics? This includes neutral gas evolution
   
   Field3D Srec, Siz;        // Plasma particle sinks due to recombination and ionisation
-  Field3D Frec, Fiz, Fcx;   // Plasma momentum sinks due to recombination, ionisation, charge exchange and total
+  Field3D Frec, Fiz, Fcx, Fel;   // Plasma momentum sinks due to recombination, ionisation, charge exchange and elastic collisions
   Field3D Rrec, Riz, Rzrad; // Plasma power sinks due to recombination, ionisation, impurity radiation, charge exchange and total
-  Field3D Erec, Eiz, Ecx;   // Transfer of power from plasma to neutrals
+  Field3D Erec, Eiz, Ecx, Eel;   // Transfer of power from plasma to neutrals
   
   Field3D S, F, E; // Exchange of particles, momentum and energy from plasma to neutrals
   Field3D R;       // Radiated power
