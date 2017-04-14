@@ -92,6 +92,9 @@ protected:
     OPTION(opt, viscos, -1);           // Parallel viscosity
     OPTION(opt, ion_viscosity, false); // Braginskii parallel viscosity
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
+
+    OPTION(opt, gamma_sound, 5./3);  // Ratio of specific heats
+    OPTION(opt, bndry_flux_fix, false); 
     
     OPTION(opt, density_form, 4);
     OPTION(opt, momentum_form, 6);
@@ -836,9 +839,9 @@ protected:
           - Div_par(NVi);
       }else if(density_form == 4) {
         // Flux splitting with upwinding
-        Field3D a = sqrt( (5./3)*2.*Te ); // Local sound speed
+        Field3D a = sqrt( gamma_sound*2.*Te ); // Local sound speed
         ddt(Ne) = 
-          - Div_par_FV_FS(Ne, Vi, a) // Mass flow
+          - Div_par_FV_FS(Ne, Vi, a, bndry_flux_fix) // Mass flow
           ;
       }else {
         throw BoutException("Unrecognised density_form (%d)", density_form);
@@ -904,9 +907,9 @@ protected:
           ;
       }else if(momentum_form == 6) {
         // Flux splitting with upwinding
-        Field3D a = sqrt( (5./3)*2.*Te ); // Local sound speed
+        Field3D a = sqrt( gamma_sound*2.*Te ); // Local sound speed
         ddt(NVi) = 
-          - Div_par_FV_FS(NVi, Vi, a) // Momentum flow
+          - Div_par_FV_FS(NVi, Vi, a, bndry_flux_fix) // Momentum flow
           - Grad_par(P)
           ;
       }else {
@@ -999,9 +1002,9 @@ protected:
           - (2./3)*P*Div_par(Vi)
           ;
       }else if(energy_form == 8) {
-        Field3D a = sqrt( (5./3)*2.*Te ); // Local sound speed
+        Field3D a = sqrt( gamma_sound*2.*Te ); // Local sound speed
         ddt(P) += 
-          - Div_par_FV_FS(P, Vi, a)       // Advection
+          - Div_par_FV_FS(P, Vi, a, bndry_flux_fix)       // Advection
           - (2./3)*P*Div_par(Vi)          // Compression
           ;
       }else {
@@ -1463,6 +1466,8 @@ private:
   int density_sheath; // How to handle density boundary?
   int pressure_sheath; // How to handle pressure boundary?
 
+  bool bndry_flux_fix; 
+
   BoutReal frecycle; // Recycling fraction
   BoutReal gaspuff;  // Additional source of neutral gas at the target plate
   BoutReal vwall;    // Velocity of neutrals coming from the wall
@@ -1501,6 +1506,8 @@ private:
   
   Field2D dy4;   // SQ(SQ(coord->dy)) cached to avoid recalculating
   
+  BoutReal gamma_sound; // Ratio of specific heats in numerical dissipation term
+
   // Numerical diffusion
   const Field3D D(const Field3D &f, BoutReal d) {
     if(d < 0.0)

@@ -110,10 +110,11 @@ const Field3D Div_par_FV(const Field3D &f, const Field3D &v);
  * @param[in] f   The field being advected
  * @param[in] v   The advection velocity
  * @param[in] a   Maximum wave speed. Used to determine the amount of upwinding
- *
+ * @param[in] bndry_flux_fixed   If true, calculate the flux by interpolating f and v to the boundary
+ * 
  * Split into fluxes with speed v+a and v-a
  */
-const Field3D Div_par_FV_FS(const Field3D &f, const Field3D &v, const Field3D &a);
+const Field3D Div_par_FV_FS(const Field3D &f, const Field3D &v, const Field3D &a, bool bndry_flux_fixed=false);
 
 /*!
  * Finite volume parallel divergence
