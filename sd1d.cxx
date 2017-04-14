@@ -93,6 +93,7 @@ protected:
     OPTION(opt, ion_viscosity, false); // Braginskii parallel viscosity
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
     OPTION(opt, elastic_scattering, false); // Include ion-neutral elastic scattering?
+    OPTION(opt, excitation, false);    // Include electron impact excitation?
     
     OPTION(opt, density_form, 4);
     OPTION(opt, momentum_form, 6);
@@ -240,6 +241,9 @@ protected:
         if(elastic_scattering) {
           SAVE_REPEAT2(Fel, Eel); // Elastic collision transfer channels
         }
+        if(excitation) {
+          SAVE_REPEAT(Rex); // Electron-neutral excitation
+        }
         
         if(evolve_nvn) {
           SAVE_REPEAT(Vn);
@@ -256,7 +260,7 @@ protected:
 
     Srec = 0.0; Siz = 0.0; S = 0.0;
     Frec = 0.0; Fiz = 0.0; Fcx = 0.0; Fel = 0.0;  F = 0.0;
-    Rrec = 0.0; Riz = 0.0; Rzrad = 0.0; R = 0.0;
+    Rrec = 0.0; Riz = 0.0; Rzrad = 0.0; Rex = 0.0; R = 0.0;
     Erec = 0.0; Eiz = 0.0; Ecx = 0.0; Eel = 0.0;  E = 0.0;
     
     flux_ion = 0.0;
@@ -826,12 +830,30 @@ protected:
                                   +    J_R * (Te_R - Tn_R)*R_el_R
                                   ) / (6. * J_C);
             }
+
+            if(excitation) {
+              /////////////////////////////////////////////////////////
+              // Electron-neutral excitation
+              // Note: Rates need checking
+              // Currently assuming that quantity calculated is in [eV m^3/s]
+              
+              BoutReal R_ex_L  = Ne_L*Nn_L*hydrogen.excitation(Te_L*Tnorm) * Nnorm / Omega_ci / Tnorm;
+              BoutReal R_ex_C  = Ne_C*Nn_C*hydrogen.excitation(Te_C*Tnorm) * Nnorm / Omega_ci / Tnorm;
+              BoutReal R_ex_R  = Ne_R*Nn_R*hydrogen.excitation(Te_R*Tnorm) * Nnorm / Omega_ci / Tnorm;
+
+              Rex(i,j,k) = (
+                                 J_L * R_ex_L
+                            + 4.*J_C * R_ex_C
+                            +    J_R * R_ex_R
+                                ) / (6. * J_C); 
+            }
             
             
             // Total energy lost from system
             R(i,j,k) = Rzrad(i,j,k)     // Radiated power from impurities
                      + Rrec(i,j,k)      // Recombination
-                     + Riz(i,j,k);      // Ionisation
+                     + Riz(i,j,k)       // Ionisation
+                     + Rex(i,j,k);      // Excitation
             
             // Total energy transferred to neutrals
             E(i,j,k) = Ecx(i,j,k)       // Charge exchange
@@ -1468,6 +1490,7 @@ private:
   bool ion_viscosity;   // Braginskii ion viscosity on/off
   bool heat_conduction; // Thermal conduction on/off
   bool elastic_scattering; // Ion-neutral elastic scattering
+  bool excitation;      // Include electron-neutral excitation
   
   int density_form;     // Form of the density equation
   int momentum_form;    // Form of the momentum equation
@@ -1484,7 +1507,7 @@ private:
   
   Field3D Srec, Siz;        // Plasma particle sinks due to recombination and ionisation
   Field3D Frec, Fiz, Fcx, Fel;   // Plasma momentum sinks due to recombination, ionisation, charge exchange and elastic collisions
-  Field3D Rrec, Riz, Rzrad; // Plasma power sinks due to recombination, ionisation, impurity radiation, charge exchange and total
+  Field3D Rrec, Riz, Rzrad, Rex; // Plasma power sinks due to recombination, ionisation, impurity radiation, and hydrogen excitation
   Field3D Erec, Eiz, Ecx, Eel;   // Transfer of power from plasma to neutrals
   
   Field3D S, F, E; // Exchange of particles, momentum and energy from plasma to neutrals
