@@ -307,13 +307,17 @@ from X-point to target.
 \subsection{Transfer channels}
 
 There are several transfer channels and sinks for particles, energy and momentum due to rates
-of recombination, ionisation and charge exchange:
+of recombination, ionisation, charge exchange, electron-neutral excitation, and elastic collisions with units of m$^{-3}$s$^{-1}$:
 \begin{eqnarray*}
   \mathcal{R}_{rc} &=& n^2\left<\sigma v\right>_{rc}   \qquad \mbox{\textrm{(Recombination)}} \\
   \mathcal{R}_{iz} &=&  nn_n\left<\sigma v\right>_{iz} \qquad \mbox{\textrm{(Ionisation)}} \\
-  \mathcal{R}_{cx} &=& nn_n\left<\sigma v\right>_{cx} \qquad \mbox{\textrm{(Charge exchange)}}
+  \mathcal{R}_{cx} &=& nn_n\left<\sigma v\right>_{cx} \qquad \mbox{\textrm{(Charge exchange)}} \\
+  \mathcal{R}_{el} &=& nn_n\left<\sigma v\right>_{el} \qquad \mbox{\textrm{(Elastic collisions)}}
 \end{eqnarray*}
-where $n$ is the plasma density, and $n_n$ is the neutral gas density. These all have units of m$^{-3}$s$^{-1}$.
+where $n$ is the plasma density; $n_n$ is the neutral gas density; $\sigma_{cx}$ is the cross-section for charge exchange; $\sigma_{rc}$ is the cross-section for recombination;
+and $\sigma_{iz}$ is the cross-section for ionisation.
+Each of these processes' cross-section depends on the
+local density and temperatures, and so changes in time and space as the simulation evolves.
 
 \begin{itemize}
 \item $S = $ Net recombination i.e neutral source (plasma particle sink). Calculated as Recombination - Ionisation:
@@ -323,15 +327,21 @@ where $n$ is the plasma density, and $n_n$ is the neutral gas density. These all
 \item $R = $ Cooling of the plasma due to radiation, and plasma heating due to 3-body recombination at temperatures less than 5.25eV.
   \begin{eqnarray*}
     R &=& \left(1.09 T_e - 13.6\textrm{eV}\right)\mathcal{R}_{rc} \qquad \mbox{\textrm{(Recombination)}}\\
-    &+& E_{iz}\mathcal{R}_{iz}  \qquad \mbox{\textrm{(Ionisation)}}
+    &+& E_{iz}\mathcal{R}_{iz}  \qquad \mbox{\textrm{(Ionisation)}} \\
+    &+& \left(1\textrm{eV}\right)\mathcal{R}_{ex} \qquad \mbox{\textrm{(Excitation)}} \\
+    &+& R_{z,imp} \qquad \mbox{\textrm{(Impurity radiation)}}
   \end{eqnarray*}
   The factor of 1.09 in the recombination term, together with factor of $3/2$ in $E$ below, is so that recombination becomes a net heat source for the plasma at $13.6 / 2.59 = 5.25$eV. $E_{iz}$ is the average energy required to ionise an atom, including
-  energy lost through excitation. Following Togo {\it et al.}, $E_{iz}$ is chosen to be 30eV.
+  energy lost through excitation.
+
+  If excitation is not included (\texttt{excitation = false}) then following Togo {\it et al.}, $E_{iz}$ is chosen to be 30eV. If excitation is included, then $E_{iz}$ should be set to $13.6$eV.
+  
 \item $E = $ Transfer of energy to neutrals.
   \begin{eqnarray*}
     E &=& \frac{3}{2} T_e \mathcal{R}_{rc} \qquad \mbox{\textrm{(Recombination)}} \\
     &-& \frac{3}{2} T_n \mathcal{R}_{iz}  \qquad \mbox{\textrm{(Ionisation)}} \\
-    &+& \frac{3}{2}\left(T_e - T_n\right)\mathcal{R}_{cx} \qquad \mbox{\textrm{(Charge exchange)**}}
+    &+& \frac{3}{2}\left(T_e - T_n\right)\mathcal{R}_{cx} \qquad \mbox{\textrm{(Charge exchange)**}} \\
+    &+& \frac{3}{2}\left(T_e - T_n\right)\mathcal{R}_{el} \qquad \mbox{\textrm{(Elastic collisions)**}}
   \end{eqnarray*}
   (**) Note that if the neutral temperature is not evolved, then $T_n = T_e$ is used to calculate
   the diffusion coefficient $D_n$. In that case, $T_n$ is set to zero here, otherwise it would
@@ -341,12 +351,11 @@ The momentum of the neutrals is not currently modelled, so instead any momentum 
 is assumed to be transmitted to the walls of the machine. 
 \begin{eqnarray*}
   F &=& m_iV_{||}\mathcal{R}_{rc} \qquad \mbox{\textrm{(Recombination)}} \\
-  &+& m_iV_{||}\mathcal{R}_{cx}  \qquad \mbox{\textrm{(Charge exchange)}}
+  &-& m_iV_{||n}\mathcal{R}_{iz} \qquad \mbox{\textrm{(Ionisation)}} \\
+  &+& m_i\left(V_{||} - V_{||n}\right)\mathcal{R}_{cx}  \qquad \mbox{\textrm{(Charge exchange)}} \\
+  &+& m_i\left(V_{||} - V_{||n}\right)\mathcal{R}_{el}  \qquad \mbox{\textrm{(Elastic collisions)}}
 \end{eqnarray*}
 \end{itemize}
-Where $\sigma_{cx}$ is the cross-section for charge exchange, $\sigma_{rc}$ is the cross-section for recombination,
-and $\sigma_{iz}$ is the cross-section for ionisation. Each of these processes' cross-section depends on the
-local density and temperatures, and so changes in time and space as the simulation evolves.
 
 
 All transfer channels are integrated over the cell volume using Simpson's rule:
@@ -430,7 +439,7 @@ A more sophisticated neutrals model can be used, which evolves the neutral gas m
 \begin{eqnarray*}
   \frac{\partial n_n}{\partial t} &=& - \nabla\cdot\left( \bvec V_{||n} n_n\right) + {\nabla\cdot\left(D_n\nabla n_n\right)} + S - n_n / \tau_n\\
   \frac{\partial}{\partial t}\left(\frac{3}{2}p_n\right) &=& -V_{||n}\partial_{||}p_n + \nabla\cdot\left(\kappa_n\nabla T_n\right) + \nabla\cdot\left(D_nT_n\nabla n_n\right) + E \\
-  \frac{\partial}{\partial t}\left(m_i nV_{||}\right) &=& -\nabla\cdot\left(m_inV_{||}\bvec V_{||}\right) - \partial_{||} p + F\\
+  \frac{\partial}{\partial t}\left(m_i nV_{||n}\right) &=& -\nabla\cdot\left(m_inV_{||n}\bvec V_{||n}\right) - \partial_{||} p + F\\
 \end{eqnarray*}
 where $\kappa_n$ is the neutral gas heat conduction coefficient. This is assumed to be
 \[
@@ -446,7 +455,7 @@ The continuity equation for $n_n$ is exact once the flow is known, so the diffus
 should be contained in the flow velocity $V_{||n}$. To see where this comes from, assume an isothermal neutral gas:
 \begin{eqnarray*}
   \frac{\partial n_n}{\partial t} &=& - \nabla\cdot\left( \bvec V_{||n} n_n\right) + S - n_n / \tau_n\\
-  \frac{\partial}{\partial t}\left(m_i nV_{||}\right) &=& -\nabla\cdot\left(m_inV_{||}\bvec V_{||}\right) - eT_n\partial_{||} n_n + F
+  \frac{\partial}{\partial t}\left(m_i nV_{||n}\right) &=& -\nabla\cdot\left(m_inV_{||n}\bvec V_{||n}\right) - eT_n\partial_{||} n_n + F
 \end{eqnarray*}
 Dropping the inertial terms reduces the momentum equation to
 \[
@@ -531,15 +540,21 @@ factors as the corresponding (\texttt{S}, \texttt{F}, \texttt{R}) term.
   \hline
   \texttt{Srec} & Sink of plasma particles due to recombination \\
   \texttt{Siz}  & Sink of plasma particles due to ionisation (negative) \\
+  \hline
   \texttt{Frec} & Sink of plasma momentum due to recombination \\
   \texttt{Fiz}  & Sink of plasma momentum due to ionisation \\
   \texttt{Fcx}  & Sink of plasma momentum due to charge exchange \\
+  \texttt{Fel}  & Sink of plasma momentum due to elastic collisions \\
+  \hline
   \texttt{Rrec} & Radiation loss due to recombination \\
   \texttt{Riz}  & Radiation loss due to ionisation (inc. excitation) \\
   \texttt{Rzrad} & Radiation loss due to impurities \\
+  \texttt{Rex}  & Radiation loss due to electron-neutral excitation \\
+  \hline
   \texttt{Erec} & Sink of plasma energy due to recombination \\
   \texttt{Eiz}  & Sink of plasma energy due to ionisation \\
   \texttt{Ecx}  & Sink of plasma energy due to charge exchange \\
+  \texttt{Eel}  & Sink of plasma energy due to elastic collisions \\
   \hline
 \end{tabular}
 \end{center}
@@ -567,7 +582,7 @@ so is not reproduced here.
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.7\columnwidth]{hydrogen.pdf}
-\caption{Cross-sections [Thanks to E.Havlickova]}
+\caption{Cross-sections [Thanks to E.Havlickova and H.Willett]}
 \label{fig:sigma}
 \end{figure}
 Plots of these cross-sections are shown in figure~\ref{fig:sigma}. There are a few anomalies with this: charge exchange always has the highest cross-section of any process, and ionisation has a jump at $20$eV. The ionisation and
