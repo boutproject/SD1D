@@ -46,6 +46,8 @@
 #include "loadmetric.hxx"
 #include "radiation.hxx"
 
+#include "non-local_parallel.hxx"  // Non-local heat transport
+
 class SD1D : public PhysicsModel {
 protected:
   int init(bool restarting) {
@@ -93,6 +95,8 @@ protected:
     OPTION(opt, ion_viscosity, false); // Braginskii parallel viscosity
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
 
+    OPTION(opt, nonlocal_conduction, false); // Non-local heat conduction
+    
     OPTION(opt, elastic_scattering, false); // Include ion-neutral elastic scattering?
     OPTION(opt, excitation, false);    // Include electron impact excitation?
 
@@ -319,7 +323,20 @@ protected:
       update_coefficients = true;
     }
     setSplitOperator(split_operator);
-   
+    
+    //////////////////////////////////////////
+    // Non-local heat conduction
+    
+    if ( heat_conduction && nonlocal_conduction ) {
+      // Initialise the non-local heat conduction model
+      nonlocal_parallel = new NonLocalParallel(-SI::qe, SI::Me, SI::e0, 
+                                               Coulomb, // Coulomb logarithm
+                                               false,   // fluxes ylow
+                                               Options::getRoot()->getSection("non_local_parallel"));
+      
+      SAVE_REPEAT2(qe_nonlocal, qe_local);
+    }
+
     return 0;
   }
 
@@ -1098,11 +1115,40 @@ protected:
       }
     }
     
-    if(rhs_implicit) {
-      if(heat_conduction) {
-        //ddt(P) += (2./3)*Div_par_diffusion(kappa_epar, Te);
-        ddt(P) += (2./3)*Div_par_diffusion_upwind(kappa_epar, Te);  
-        //ddt(P) += (2./3)*Div_par_spitzer( 3.2 * mi_me * Omega_ci * tau_e0, Te);
+    if (rhs_implicit) {
+      if (heat_conduction) {
+        if (!nonlocal_conduction) {
+          // Standard local heat conduction
+          
+          //ddt(P) += (2./3)*Div_par_diffusion(kappa_epar, Te);
+          ddt(P) += (2./3)*Div_par_diffusion_upwind(kappa_epar, Te);  
+          //ddt(P) += (2./3)*Div_par_spitzer( 3.2 * mi_me * Omega_ci * tau_e0, Te);
+        } else {
+          // Nonlocal heat conduction
+          
+          // Specify plasma profiles in SI units
+          nonlocal_parallel->set_n_electron(Ne*Nnorm);
+          nonlocal_parallel->set_T_electron(SI::qe*Te*Tnorm);
+          nonlocal_parallel->set_potential(0.0);
+          nonlocal_parallel->set_j_parallel(0.0);
+          nonlocal_parallel->set_V_electron(Vi*Cs0);
+          
+          // Specify sources
+          //nonlocal_parallel->set_maxwellian_source(0,0);
+          
+          // Convert parallel metric to SI
+          coord->g_22 *= rho_s0*rho_s0; // Convert to m^2
+          
+          nonlocal_parallel->calculate_nonlocal_closures();
+
+          coord->g_22 /= rho_s0*rho_s0; // Restore g_22
+
+          qe_nonlocal = (1/(Cs0*SI::qe*Tnorm*Nnorm))*nonlocal_parallel->electron_heat_flux;
+          qe_local = -kappa_epar*Grad_par(Te);
+          
+          // Note: This is local heat flux
+          ddt(P) += (2./3)*Div_par_diffusion_upwind(kappa_epar, Te); 
+        }
       }
 
       if(anomalous_D > 0.0) {
@@ -1504,6 +1550,10 @@ private:
 
   BoutReal anomalous_D, anomalous_chi; // Anomalous transport
   
+  bool nonlocal_conduction; // Turn on non-local heat conduction?
+  NonLocalParallel* nonlocal_parallel;
+  Field3D qe_nonlocal, qe_local; // Output diagnostics
+
   /////////////////////////////////////////////////////////////////
   // Atomic physics transfer channels
   

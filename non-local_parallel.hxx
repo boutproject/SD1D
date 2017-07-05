@@ -84,8 +84,8 @@ public:
 private:
   Coordinates *coord; ///< Metric tensor. Set in constructor
   
-  Field3D n_electron;
-  Field3D T_electron;
+  Field3D n_electron;   ///< Electron density in m^-3
+  Field3D T_electron;   ///< Electron temperature in Joules
   Field3D V_electron;
   Field3D j_parallel;
   Field3D V_ion; // Used for the maxwellian_source_drives_oddp_terms calculation

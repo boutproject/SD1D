@@ -78,7 +78,12 @@ const FieldPerp exp(const FieldPerp &f) {
  *                    HEAT FLUX INITIALISATION AND CREATION                       *
  **********************************************************************************/
 
-NonLocalParallel::NonLocalParallel(const BoutReal &pass_elementary_charge, const BoutReal &pass_electron_mass/*, const BoutReal &pass_ion_mass*/, const BoutReal &pass_epsilon_0, const BoutReal &pass_logLambda, const bool pass_fluxes_location_is_ylow/*, const BoutReal &pass_gamma_factor*/, Options* options) {
+NonLocalParallel::NonLocalParallel(const BoutReal &pass_elementary_charge, 
+                                   const BoutReal &pass_electron_mass, 
+                                   const BoutReal &pass_epsilon_0, 
+                                   const BoutReal &pass_logLambda, 
+                                   const bool pass_fluxes_location_is_ylow,
+                                   Options* options) {
 
   fluxes_location_is_ylow = pass_fluxes_location_is_ylow;
 #ifdef CHECK
@@ -326,7 +331,7 @@ NonLocalParallel::NonLocalParallel(const BoutReal &pass_elementary_charge, const
     heatflux_infilename<<"nonlocal_coefficients/heatfluxcoeffs"<<moments_number;
     std::ifstream heatflux_infile ( heatflux_infilename.str().c_str() );
     if (!heatflux_infile.is_open()) {
-      throw BoutException("Could not open heatfluxcoeffs file");
+      throw BoutException("Could not open heatfluxcoeffs file '%s'", heatflux_infilename.str().c_str());
     }
     heatflux_infile>>number_of_negative_eigenvalues;
     if (!allocated_eigenvalues) {
@@ -721,6 +726,8 @@ NonLocalParallel::~NonLocalParallel() {
  **********************************************************************************/
 
 void NonLocalParallel::calculate_nonlocal_closures() {
+  TRACE("NonLocalParallel::calculate_nonlocal_closures");
+  
   if (fluxes_location_is_ylow)
     calculate_nonlocal_closures_cell_ylow();
   else
@@ -733,10 +740,17 @@ void NonLocalParallel::calculate_nonlocal_closures() {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
+  TRACE("NonLocalParallel::calculate_nonlocal_closures_cell_centre");
+  
   int dataindex=0; // Use for cycling through jx indices of lower/upper_transients_data
   
   lambdaC_inverse = n_electron * pow(elementary_charge,4) * logLambda / 12. / pow(PI,1.5) / pow(epsilon_0,2) / SQ(T_electron);
-  if (normalized_density) lambdaC_inverse *= density_normalization; // If set_density_normalization has been called, un-normalize the density used to calculate the collision length so that it has the correct units
+  if (normalized_density) {
+    // If set_density_normalization has been called, 
+    // un-normalize the density used to calculate the collision length 
+    // so that it has the correct units
+    lambdaC_inverse *= density_normalization; 
+  }
   
   if (gradT_drive) {
     gradT_driveterm = 5./4. * n_electron / T_electron * Grad_par(T_electron) / lambdaC_inverse; //g^(1,1)
@@ -753,33 +767,48 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
   
   // Now calculate z and deltaz everywhere
   cubic_spline_inverse_lambdaC.calculate(lambdaC_inverse);
-  
+
+  // Iterate over X-Z, excluding boundaries
+  // This performs an integral along y, with each processor
+  // waiting for the processor before it.
   start_index(position);
-  
   do {
-    
+
+    // Here position has jy = mesh->ystart;
     if (!is_lower_boundary[position->jx]) {
-      {
-	Timer timer("comms");
-	if (position->jx < mesh->DownXSplitIndex())
-	  mesh->wait(mesh->irecvYInIndest(&increasing_dimensionless_length(position->jx,mesh->ystart,position->jz),1,
-					  NONLOCAL_PARALLEL_TAGBASE + position->jx*mesh->LocalNz+position->jz));
-	else
-	  mesh->wait(mesh->irecvYInOutdest(&increasing_dimensionless_length(position->jx,mesh->ystart,position->jz),1,
-					  NONLOCAL_PARALLEL_TAGBASE + position->jx*mesh->LocalNz+position->jz));
+      // Lower boundary in Y is NOT on this processor:
+      // mesh->firstY(jx) -> false
+      
+      Timer timer("comms");
+      if (position->jx < mesh->DownXSplitIndex()) {
+        mesh->wait(mesh->irecvYInIndest(&increasing_dimensionless_length(position->jx,mesh->ystart,position->jz),1,
+                                        NONLOCAL_PARALLEL_TAGBASE + position->jx*mesh->LocalNz+position->jz));
+      } else {
+        mesh->wait(mesh->irecvYInOutdest(&increasing_dimensionless_length(position->jx,mesh->ystart,position->jz),1,
+                                         NONLOCAL_PARALLEL_TAGBASE + position->jx*mesh->LocalNz+position->jz));
       }
     }
-    
+    // Change position to jy = mesh->ystart-1;
     position->jy = mesh->ystart-1;
     calc_index(position);
 
     interp_coefficients = cubic_spline_inverse_lambdaC.coefficients(position);
-    // d/dy(delta) = 1/lambdaC = a + b*t + c*t^2 + d*t^3; t=(ind-jy)=(y-y0)/(sqrt(g_22)*dy); ind is a notional continuous variable equal to jy at the gridpoints so at jy+1 t=1
-    dimensionless_length_deltas_above[*position] /* = dy/dt*(a + 1/2*b + 1/3*c + 1/4*d) */
+    // d/dy(delta) = 1/lambdaC = a + b*t + c*t^2 + d*t^3; 
+    // t=(ind-jy)=(y-y0)/(sqrt(g_22)*dy); 
+    // ind is a notional continuous variable equal to jy at the gridpoints so at jy+1 t=1
+    dimensionless_length_deltas_above[*position] // = dy/dt*(a + 1/2*b + 1/3*c + 1/4*d)
       = coord->dy(position->jx,position->jy)*sqrt(0.5*(coord->g_22(position->jx,position->jy)+coord->g_22(position->jx,position->jyp)))
       *(interp_coefficients[0] + interp_coefficients[1]/2. + interp_coefficients[2]/3. + interp_coefficients[3]/4.);
-    next_index_y(position);
+
     
+    // Change position back to jy = mesh->ystart;
+    next_index_y(position);
+
+    // Integrate dimensionless_length_deltas_above in y
+    // to get increasing_dimensionless_length
+    // The starting value for this is set to zero in the constructor,
+    // and overwritten for processors not on the lower boundary
+    // by the above communication
     do {
       interp_coefficients = cubic_spline_inverse_lambdaC.coefficients(position);
       // d/dy(delta) = 1/lambdaC = a + b*t + c*t^2 + d*t^3; t=(ind-jy)=(y-y0)/(sqrt(g_22)*dy); ind is a notional continuous variable equal to jy at the gridpoints so at jy+1 t=1
@@ -806,19 +835,27 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
   if (has_upper_boundary) {
     total_dimensionless_length = sliceXZ(increasing_dimensionless_length,mesh->yend);
   }
-  
+
+  // This code broadcasts from processor at the end of the y domain
+  // to all other processors
   for (int jx=mesh->xstart; jx<=mesh->xend; jx++) {
     y_broadcast(&(total_dimensionless_length(jx,0)), // get a pointer to the jx'th row of total_dimensionless_length's data
-		nz, ycomms_size[jx-mesh->xstart]-1,jx);
-  }
-  
-  decreasing_dimensionless_length = -increasing_dimensionless_length;
-  
-  for (auto &i : decreasing_dimensionless_length.region(RGN_NOY)) {
-    decreasing_dimensionless_length[i] += total_dimensionless_length[i];
+		nz,
+                ycomms_size[jx-mesh->xstart]-1, // Root processor (last one)
+                jx);
   }
 
+  
+  decreasing_dimensionless_length.allocate();
+  for (auto &i : decreasing_dimensionless_length.region(RGN_NOY)) {
+    decreasing_dimensionless_length[i] = total_dimensionless_length[i] - increasing_dimensionless_length[i];
+  }
+  
   if (has_lower_boundary) {
+    // This modifies total_dimensionless_length in the y guard cell.
+    // Not convinced this is doing the right thing; the
+    // decreasing_dimensionless_length ends up being large in the boundary
+    // e.g 1.787241e+02 at y=1, 6.586338e+00 at y=2
     total_dimensionless_length.setIndex(mesh->ystart-1);
     FieldPerp tmp = sliceXZ(dimensionless_length_deltas_above, mesh->ystart-1);
     for(auto &i : total_dimensionless_length) {
@@ -826,6 +863,10 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
       decreasing_dimensionless_length[i] += tmp[i];
     }
   }
+
+  //
+  // electron_heat_flux, electron_viscosity and electron_friction
+  // are all Field3D objects
   
   if (calculate_heatflux) {
     electron_heat_flux = 0.;
@@ -836,9 +877,7 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
   if (calculate_friction) {
     electron_friction = 0.;
   }
-// BoutReal temp_ef = 0.;
-// output<<"first "<<electron_friction[40][35][0]<<endl;
-// temp_ef=electron_friction[40][35][0];
+  
   int driveterm_counter = 0;
   if (gradT_drive) {
     if (calculate_heatflux) {
@@ -876,31 +915,16 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
     }
   }
   
-// BoutReal sumv = 0.;
-// BoutReal sumf = 0.;
-// BoutReal sumv2 = 0.;
-// BoutReal sumf2 = 0.;
-// for (int i=0;i<number_of_negative_eigenvalues;i++){
-//   sumv += viscosity_gradV_coefficients[i]*eigenvalues[i];
-//   sumf += friction_gradV_coefficients[i]*eigenvalues[i];
-//   sumv2 += viscosity_gradV_coefficients[i];
-//   sumf2 += friction_gradV_coefficients[i];
-// }
-// output<<sumv<<" "<<sumf<<endl<<sumv2<<" "<<sumf2<<endl;
-// exit(17);
-// output<<"with zerocoeff "<<electron_friction[40][35][0]<<" "<<electron_friction[40][35][0]-temp_ef<<endl;
-// temp_ef=electron_friction[40][35][0];
-  {
-    BoutReal* temppointer = lower_transients_data;
-    for (int i=0; i<transients_data_size; i++) {
-      *temppointer=0.;
-      temppointer++;
-    }
+  for (int i=0; i < transients_data_size; i++) {
+    lower_transients_data[i] = 0.0;
   }
-  for (int j=0; j<number_of_negative_eigenvalues; j++) {
+  
+  for (int j=0; j < number_of_negative_eigenvalues; j++) {
+    // This calculates a Field3D integration.integral_below
     integration.calculateIntegralBelow_cell_centre(eigenvalues[j], dimensionless_length_deltas_above, cubic_spline_inverse_lambdaC, number_of_drives, &driveterm_coefficients_below[j*number_of_drives], cubic_splines_driveterms_centre, j);
     if (calculate_heatflux) {
       electron_heat_flux += heatflux_coefficients_below[j]*integration.integral_below;
+      
     }
     if (calculate_viscosity) {
       electron_viscosity += viscosity_coefficients[j]*integration.integral_below;
@@ -909,7 +933,7 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
       electron_friction += friction_coefficients_below[j]*integration.integral_below;
     }
     dataindex = 0;
-    if ( yperiodic || (nx_core>0) || (bc_apply_reflecting_sheath && nx_sol>0) )
+    if ( yperiodic || (nx_core>0) || (bc_apply_reflecting_sheath && nx_sol>0) ) {
       for (int jx=mesh->xstart; jx<=mesh->xend; jx++) {
 	if (is_upper_boundary[jx]) {
 	  if (mesh->periodicY(jx)) {
@@ -917,8 +941,7 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
 	      lower_transients_data[dataindex*transients_row_size+j*nz+jz] += integration.integral_below(jx,mesh->yend+1,jz); // First store total integrals (at first guard cell) in the transients variables
 	      dataindex++;
 	    }
-	  }
-	  else if (bc_apply_reflecting_sheath) {
+	  } else if (bc_apply_reflecting_sheath) {
 	    for (int jz=0; jz<nz; jz++) {
 	      lower_transients_data[dataindex*transients_row_size+j*nz+jz] += integration.integral_below(jx,mesh->yend,jz); // First store total integrals (at last grid cell) in the transients variables
 	      dataindex++;
@@ -926,19 +949,19 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
 	  }
 	}
       }
-  }
-  
-// output<<"with IntegralBelow "<<electron_friction[40][35][0]<<" "<<electron_friction[40][35][0]-temp_ef<<endl;
-// temp_ef=electron_friction[40][35][0];
-  // Signs in the following block: the integral is done 'backwards', so start with -'ve sign. [The following signs are now absorbed into the coefficients] Then multiply by (-1)^(l(A)+l(D)), i.e. if drive and output moment have the same l(mod 2) multiply by +1, if different l(mod 2) by -1
-  {
-    BoutReal* temppointer = upper_transients_data;
-    for (int i=0; i<transients_data_size; i++) {
-      *temppointer=0.;
-      temppointer++;
     }
   }
-  for (int j=0; j<number_of_negative_eigenvalues; j++) {
+  
+  // Signs in the following block: the integral is done 'backwards',
+  // so start with -'ve sign. [The following signs are now absorbed into the coefficients]
+  // Then multiply by (-1)^(l(A)+l(D)), i.e. if drive and output moment
+  // have the same l(mod 2) multiply by +1, if different l(mod 2) by -1
+
+  for (int i=0; i < transients_data_size; i++) {
+    upper_transients_data[i] = 0.0;
+  }
+  
+  for (int j=0; j < number_of_negative_eigenvalues; j++) {
     integration.calculateIntegralAbove_cell_centre(eigenvalues[j], dimensionless_length_deltas_above, cubic_spline_inverse_lambdaC, number_of_drives, &driveterm_coefficients_above[j*number_of_drives], cubic_splines_driveterms_centre, j);
     
     if (calculate_heatflux) {
@@ -968,8 +991,7 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
 	      }
 	      dataindex++;
 	    }
-	  }
-	  else if (bc_apply_reflecting_sheath) {
+	  } else if (bc_apply_reflecting_sheath) {
 	    for (int jz=0; jz<nz; jz++) {
 	      if (calculate_heatflux) {
 		upper_transients_data[dataindex*transients_row_size+j*nz+jz] += -heatflux_coefficients_above[j]*integration.integral_above(jx,mesh->ystart,jz); // First store total integrals in the transients variables
@@ -1042,8 +1064,7 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
 	if (mesh->periodicY(jx,shiftangle)) {
 	  toroidal_solver_reverse->solve(lower_transients_data+dataindex*transients_row_size+j*nz,&decayfactor_core(jx,0),jx,shiftangle);
 	  dataindex++;
-	}
-	else if (bc_apply_reflecting_sheath) {
+	} else if (bc_apply_reflecting_sheath) {
 	  // Calculate lower transients on the upper boundary and vice versa in order to have the same communications to do as for the toroidal/periodic transients, for which this choice is more convenient/efficient
 	  if (is_lower_boundary[jx]) {
 	    if (is_upper_boundary[jx]) {
@@ -1077,9 +1098,7 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
 	}
 	dataindex++;
       }
-    }
-// MPI_Barrier(BoutComm::get());}output<<"toroidal solve time is "<<Timer::getTime("toroidal")<<endl;Timer::resetTime("toroidal");
-    else if (yperiodic) {
+    } else if (yperiodic) {
       if (has_upper_boundary) {
 	FieldPerp dividebythis = 1.0 - exp(sliceXZ(increasing_dimensionless_length, mesh->yend+1)/eigenvalues[j]); // Now calculate the actual transient using the stored total integral from zero
 	for (int jx=mesh->xstart, i=0; jx<=mesh->xend; jx++, i++)
@@ -1096,20 +1115,18 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
         decayfactor = exp(sliceXZ(decreasing_dimensionless_length, mesh->ystart-1)/eigenvalues[j]);
       }
       dataindex=0;
-// {MPI_Barrier(BoutComm::get());Timer timer("toroidal");
-      for (int jx=mesh->xstart; jx<=mesh->xend; jx++)
+      for (int jx=mesh->xstart; jx<=mesh->xend; jx++) {
 	if (mesh->periodicY(jx,shiftangle)) {
 	  toroidal_solver_forward->solve(upper_transients_data+dataindex*transients_row_size+j*nz,&decayfactor(jx,0),jx,shiftangle);
 	  dataindex++;
 	}
-// MPI_Barrier(BoutComm::get());}output<<"toroidal solve time is "<<Timer::getTime("toroidal")<<endl;Timer::resetTime("toroidal");
-    }
-    else {
+      }
+    } else {
       if (has_lower_boundary) {
 	FieldPerp dividebythis = 1.0 - exp(sliceXZ(decreasing_dimensionless_length, mesh->ystart-1)/eigenvalues[j]); // Now calculate the actual transient using the stored total integral from zero
 	for (int jx=mesh->xstart, i=0; jx<=mesh->xend; jx++, i++)
 	  for (int jz=0; jz<nz; jz++) {
-	    upper_transients_data[i*transients_row_size+j*nz+jz] /= dividebythis[jx][jz];
+	    upper_transients_data[i*transients_row_size+j*nz+jz] /= dividebythis(jx,jz);
 	  }
       }
     }
@@ -1513,11 +1530,12 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
     calc_index(position);
     do {
       for (int j=0; j<number_of_negative_eigenvalues; j++) {
-	BoutReal lower_transient = lower_transients_data[(position->jx-mesh->ystart)*transients_row_size+j*nz+position->jz] * exp(increasing_dimensionless_length[*position]/eigenvalues[j]);
-	BoutReal upper_transient = upper_transients_data[(position->jx-mesh->ystart)*transients_row_size+j*nz+position->jz] * exp(decreasing_dimensionless_length[*position]/eigenvalues[j]);
+	BoutReal lower_transient = lower_transients_data[(position->jx-mesh->xstart)*transients_row_size+j*nz+position->jz] * exp(increasing_dimensionless_length[*position]/eigenvalues[j]);
+	BoutReal upper_transient = upper_transients_data[(position->jx-mesh->xstart)*transients_row_size+j*nz+position->jz] * exp(decreasing_dimensionless_length[*position]/eigenvalues[j]);
 	if (calculate_heatflux) {
 	  electron_heat_flux[*position] += heatflux_coefficients_below[j]*lower_transient + heatflux_coefficients_above[j]*upper_transient;
-// output<<position->jx<<","<<position->jy<<","<<position->jz<<" "<<heatflux_lower_boundary_transients[j][position->jx][position->jz]<<" "<<heatflux_upper_boundary_transients[j][position->jx][position->jz]<<endl;
+
+          //output << position->jx<<","<<position->jy<<","<<position->jz<<" " << j << " = " << lower_transient <<" "<< upper_transient << " -> " << electron_heat_flux[*position] <<endl;
 	}
 	if (calculate_viscosity) {
 	  electron_viscosity[*position] += viscosity_coefficients[j]*(lower_transient + upper_transient);
