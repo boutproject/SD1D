@@ -1534,8 +1534,15 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
 	BoutReal upper_transient = upper_transients_data[(position->jx-mesh->xstart)*transients_row_size+j*nz+position->jz] * exp(decreasing_dimensionless_length[*position]/eigenvalues[j]);
 	if (calculate_heatflux) {
 	  electron_heat_flux[*position] += heatflux_coefficients_below[j]*lower_transient + heatflux_coefficients_above[j]*upper_transient;
-
-          //output << position->jx<<","<<position->jy<<","<<position->jz<<" " << j << " = " << lower_transient <<" "<< upper_transient << " -> " << electron_heat_flux[*position] <<endl;
+          /*
+          output << position->jx<<","<<position->jy<<","<<position->jz<<" " << j
+                 << " = " << lower_transient <<" "<< upper_transient
+                 << " -> " << electron_heat_flux[*position]
+                 << " :" << upper_transients_data[(position->jx-mesh->xstart)*transients_row_size+j*nz+position->jz]
+                 << ", " << decreasing_dimensionless_length[*position]
+                 << ", " << eigenvalues[j]
+                 << endl;
+          */
 	}
 	if (calculate_viscosity) {
 	  electron_viscosity[*position] += viscosity_coefficients[j]*(lower_transient + upper_transient);
@@ -1549,15 +1556,8 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
     } while (position->jy<mesh->yend+1);
   } while (next_indexperp(position));
   #endif
-// output<<"with edgeterms "<<electron_friction[40][35][0]<<" "<<electron_friction[40][35][0]-temp_ef<<endl;
-// temp_ef=electron_friction[40][35][0];
   
   if (calculate_heatflux) {
-// for (int x=0; x<mesh->LocalNx; x++)for (int y=0; y<mesh->LocalNy; y++){
-//   output<<x<<","<<y<<"   ";
-//   for (int z=0; z<mesh->LocalNz; z++) output<<electron_heat_flux[x][y][z]<<" ";
-//   output<<endl;
-// }
     electron_heat_flux *= -5./4.*sqrt(2./electron_mass)*pow(T_electron,1.5); //now we have q=-5/4*v_Telectron*T_electron*n^(1,1)
     mesh->communicate(electron_heat_flux);
   }
@@ -1567,13 +1567,8 @@ void NonLocalParallel::calculate_nonlocal_closures_cell_centre() {
   }
   if (calculate_friction) {
     electron_friction *= 2.*T_electron*lambdaC_inverse;
-//     electron_friction *= 0.;
-// output<<"normalized "<<electron_friction[40][35][0]<<endl;
-// temp_ef=electron_friction[40][35][0];
 
     electron_friction += -sqrt(2.*electron_mass*T_electron)*lambdaC_inverse*(-j_parallel/elementary_charge); // Need to include also the friction due directly to the Maxwellian part of the distribution function
-// output<<"with Maxwellian contrib "<<electron_friction[40][35][0]<<" "<<electron_friction[40][35][0]-temp_ef<<endl;
-// temp_ef=electron_friction[40][35][0];
     mesh->communicate(electron_friction);
   }
 }

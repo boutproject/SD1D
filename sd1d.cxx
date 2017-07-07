@@ -333,6 +333,10 @@ protected:
                                                Coulomb, // Coulomb logarithm
                                                false,   // fluxes ylow
                                                Options::getRoot()->getSection("non_local_parallel"));
+
+      // No currents or potentials for now
+      nonlocal_parallel->set_potential(0.0);
+      nonlocal_parallel->set_j_parallel(0.0);
       
       SAVE_REPEAT2(qe_nonlocal, qe_local);
     }
@@ -526,8 +530,10 @@ protected:
       if(Pout < 0.0)
         Pout = 0.0;
       
-      if(rhs_explicit) {
+      if(rhs_explicit && (!nonlocal_conduction)) {
         // Additional cooling
+        // If nonlocal heat conduction is used then this is
+        // already included.
         BoutReal q = (sheath_gamma - 6) * Te(r.ind, mesh->yend, jz) * flux;
         
         // Multiply by cell area to get power
@@ -1129,9 +1135,30 @@ protected:
           // Specify plasma profiles in SI units
           nonlocal_parallel->set_n_electron(Ne*Nnorm);
           nonlocal_parallel->set_T_electron(SI::qe*Te*Tnorm);
-          nonlocal_parallel->set_potential(0.0);
-          nonlocal_parallel->set_j_parallel(0.0);
           nonlocal_parallel->set_V_electron(Vi*Cs0);
+          
+          // Set boundary condition on heat flux
+          // Zero heat flux at lower Y
+          // Calculated from q = gamma e n cs
+          Field3D heat_flux_boundary = 0.0;
+          for(RangeIterator r=mesh->iterateBndryUpperY(); !r.isDone(); r++) {
+            int jz = 0;
+            
+            // Outward flow velocity to >= Cs
+            BoutReal Vout = sqrt(2.0*Te(r.ind, mesh->yend, jz)); // Sound speed outwards
+            if(Vi(r.ind, mesh->yend, jz) > Vout)
+              Vout = Vi(r.ind, mesh->yend, jz); // If plasma is faster, go to plasma velocity
+
+            BoutReal Nout = 0.5*(Ne(r.ind, mesh->yend, jz) + Ne(r.ind, mesh->yend+1, jz));
+            
+            BoutReal flux = Nout * Vout;
+            BoutReal q = (sheath_gamma - 6) * Te(r.ind, mesh->yend, jz) * flux;
+            // Convert to SI units
+            heat_flux_boundary(r.ind, mesh->yend, jz) = (Cs0*SI::qe*Tnorm*Nnorm) * q;
+          }
+          
+          nonlocal_parallel->set_heat_flux_boundary_condition(heat_flux_boundary);
+          
           
           // Specify sources
           //nonlocal_parallel->set_maxwellian_source(0,0);
@@ -1145,9 +1172,18 @@ protected:
 
           qe_nonlocal = (1/(Cs0*SI::qe*Tnorm*Nnorm))*nonlocal_parallel->electron_heat_flux;
           qe_local = -kappa_epar*Grad_par(Te);
+
+          // Apply a neumann boundary condition, so that the
+          // boundary condition we have imposed on the first and last points
+          // is also imposed on the boundaries
+          qe_nonlocal.applyBoundary("neumann");
+          //qe_nonlocal.applyBoundary("free_o2");
           
           // Note: This is local heat flux
-          ddt(P) += (2./3)*Div_par_diffusion_upwind(kappa_epar, Te); 
+          //ddt(P) += (2./3)*Div_par_diffusion_upwind(kappa_epar, Te);
+
+          // Add divergence of non-local heat flux
+          ddt(P) -= (2./3)*Div_par(qe_nonlocal);
         }
       }
 
