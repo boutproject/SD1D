@@ -5,11 +5,11 @@
 #include <memory> //For smart pointers
 #include <set>
 
-#include "json.hpp"
+#include "json.hxx"
 using json = nlohmann::json;
-#include "ImpuritySpecies.hpp"
-#include "sharedFunctions.hpp"
-#include "RateCoefficient.hpp"
+#include "ImpuritySpecies.hxx"
+#include "sharedFunctions.hxx"
+#include "RateCoefficient.hxx"
 
 using namespace std;
 
@@ -28,7 +28,7 @@ ImpuritySpecies::ImpuritySpecies(string& impurity_symbol_supplied){
 	// Declare the path the directory which contains the JSON files created from OpenADAS .dat files
 	// To convert .dat to .json, see https://github.com/TBody/OpenADAS_to_JSON (should be included as a subdirectory of SD1D)
 	// string json_database_path = get_json_database_path();
-	string json_database_path = "json_database/json_data";
+	string json_database_path = "json_database/";
 
 	// Define a map between a recognisable key for various physics process, and the 3-letter code used by OpenADAS to represent this data
 	map<string,string>datatype_abbrevs={

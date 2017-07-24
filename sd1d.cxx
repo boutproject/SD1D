@@ -46,6 +46,10 @@
 #include "loadmetric.hxx"
 #include "radiation.hxx"
 
+// OpenADAS interface Atomicpp by T.Body
+#include "atomicpp/ImpuritySpecies.hxx"
+#include "atomicpp/Prad.hxx"
+
 class SD1D : public PhysicsModel {
 protected:
   int init(bool restarting) {
@@ -69,7 +73,6 @@ protected:
     OPTION(opt, gaspuff,  0.0); // Additional gas flux at target
     OPTION(opt, dneut, 1.0);    // Scale neutral gas diffusion
     OPTION(opt, nloss, 0.0);    // Neutral gas loss rate
-    OPTION(opt, fimp,  0.01);   // 1% impurity
     OPTION(opt, Eionize,   30);     // Energy loss per ionisation (30eV)
     OPTION(opt, sheath_gamma, 6.5); // Sheath heat transmission
     OPTION(opt, neutral_gamma, 0.25); // Neutral heat transmission
@@ -219,9 +222,23 @@ protected:
     mesh->coordinates()->J = ffact.create2D(area_string, Options::getRoot());
     
     dy4 = SQ(SQ(mesh->coordinates()->dy));
+
+
+    //////////////////////////////////////////////////
+    // Impurities
+    OPTION(opt, fimp,  0.0);   // Fixed impurity fraction
     
-    // Use carbon radiation for the impurity
-    rad = new HutchinsonCarbonRadiation();
+    OPTION(opt, impurity_adas, false);
+    if (impurity_adas) {
+      // Use OpenADAS data through Atomicpp
+      // Find out which species to model
+      string impurity_species;
+      OPTION(opt, impurity_species, "c");
+      impurity = new ImpuritySpecies(impurity_species);
+    } else {
+      // Use carbon radiation for the impurity
+      rad = new HutchinsonCarbonRadiation();
+    }
 
     // Add extra quantities to be saved
     if(atomic) {
@@ -690,8 +707,20 @@ protected:
       TRACE("Atomic");
       
       if(fimp > 0.0) {
-        // Impurity radiation 
-        Rzrad = rad->power(Te*Tnorm, Ne*Nnorm, Ne*(Nnorm*fimp)); // J / m^3 / s
+        // Impurity radiation
+
+        if (impurity_adas) {
+          Rzrad.allocate();
+          for (auto &i : Rzrad) {
+            Rzrad[i] = computeRadiatedPower( *impurity,
+                                             Te[i]*Tnorm,  // electron temperature [eV]
+                                             Ne[i]*Nnorm,  // electron density [m^-3]
+                                             fimp*Ne[i]*Nnorm, // impurity density [m^-3]
+                                             Nn[i]*Nnorm ); // Neutral density [m^-3]
+          }
+        } else {
+          Rzrad = rad->power(Te*Tnorm, Ne*Nnorm, Ne*(Nnorm*fimp)); // J / m^3 / s
+        }
         Rzrad /= SI::qe*Tnorm*Nnorm * Omega_ci; // Normalise
       } // else Rzrad = 0.0 set in init()
       
@@ -1517,10 +1546,14 @@ private:
   Field3D S, F, E; // Exchange of particles, momentum and energy from plasma to neutrals
   Field3D R;       // Radiated power
   
-  RadiatedPower *rad;            // Impurity atomic rates
   UpdatedRadiatedPower hydrogen; // Atomic rates
+
   
   BoutReal fimp;     // Impurity fraction (of Ne)
+  bool impurity_adas;  // True if using ImpuritySpecies, false if using RadiatedPower
+  ImpuritySpecies *impurity;     // Atomicpp impurity
+  RadiatedPower *rad;            // Impurity atomic rates
+  
   BoutReal Eionize;  // Ionisation energy loss
   
   bool neutral_f_pn; // When not evolving NVn, use F = Grad_par(Pn)

@@ -27,9 +27,9 @@ using namespace std;
 
 double computeRadiatedPower(ImpuritySpecies &impurity, double Te, double Ne,
                             double Ni, double Nn) {
-  // 
-  cout << "Called for Te = " << Te << ", Ne = " << Ne << ", Ni = " << Ni
-       << ", Nn = " << Nn << endl;
+  
+  // cout << "Called for Te = " << Te << ", Ne = " << Ne << ", Ni = " << Ni
+  //      << ", Nn = " << Nn << endl;
 
   int Z = impurity.get_atomic_number();
   vector<double> iz_stage_distribution(Z + 1);

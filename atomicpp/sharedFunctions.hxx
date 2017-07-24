@@ -4,7 +4,7 @@
 	#include <string>
 	#include <fstream>
 
-	#include "json.hpp"
+	#include "json.hxx"
 	using json = nlohmann::json;
 
 	using namespace std; //saves having to prepend std:: onto common functions

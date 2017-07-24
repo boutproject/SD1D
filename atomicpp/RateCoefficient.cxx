@@ -1,11 +1,11 @@
 #include <string>
 #include <vector>
 #include <fstream>
-#include "json.hpp"
+#include "json.hxx"
 #include <stdexcept> //For error-throwing
 
-#include "RateCoefficient.hpp"
-#include "sharedFunctions.hpp"
+#include "RateCoefficient.hxx"
+#include "sharedFunctions.hxx"
 using namespace std; //saves having to prepend std:: onto common functions
 
 #include <algorithm> //for upper/lower_bound

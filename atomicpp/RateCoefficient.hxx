@@ -3,7 +3,7 @@
 	#include <string>
 	#include <vector>
 	#include <fstream>
-	#include "json.hpp"
+	#include "json.hxx"
 
 	using namespace std; //saves having to prepend std:: onto common functions
 
