@@ -28,16 +28,20 @@ class NonLocalParallelToroidalSolver;
 #ifndef __MUMPS_LAPLACE_H__
 #define __MUMPS_LAPLACE_H__
 
-// #ifndef BOUT_HAS_MUMPS
-// 
-// #include <boutexception.hxx>
-// 
-// class NonLocalParallelToroidalSolver {
-// public:
-//   NonLocalParallelToroidalSolver() { throw BoutException("Mumps library not available"); }
-// };
-// 
-// #else
+#ifndef BOUT_HAS_MUMPS
+
+#include <boutexception.hxx>
+#include <bout_types.hxx>
+
+class NonLocalParallelToroidalSolver {
+public:
+  NonLocalParallelToroidalSolver(bool pass_reverse) {
+    throw BoutException("Mumps library not available");
+  }
+  void solve(BoutReal* deltaI, BoutReal* decayfactor, int jx, BoutReal shiftangle) {}
+};
+
+#else // BOUT_HAS_MUMPS
 
 #include <globals.hxx>
 #include <output.hxx>
@@ -98,6 +102,6 @@ private:
   DMUMPS_STRUC_C* mumps_struc;
 };
 
-// #endif //BOUT_HAS_MUMPS
+#endif //BOUT_HAS_MUMPS
 
 #endif //MUMPS_LAPLACE_H

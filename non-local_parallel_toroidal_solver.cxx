@@ -25,6 +25,8 @@
  **************************************************************************/
 #include "non-local_parallel_toroidal_solver.hxx"
 
+#ifdef BOUT_HAS_MUMPS
+
 // #include "mpi.h"
 #include <bout/sys/timer.hxx>
 #include <boutcomm.hxx>
@@ -234,3 +236,5 @@ void NonLocalParallelToroidalSolver::solve(BoutReal* deltaI, BoutReal* decayfact
 //   }
 
 }
+
+#endif // BOUT_HAS_MUMPS
