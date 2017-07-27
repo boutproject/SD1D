@@ -1,6 +1,7 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <iostream>
 #include "json.hxx"
 #include <stdexcept> //For error-throwing
 
@@ -59,14 +60,47 @@ double RateCoefficient::call0D(const int k, const double eval_Te, const double e
 	int low_Ne = lower_bound(log_density.begin(), log_density.end(), eval_log10_Ne) - log_density.begin() - 1;
 
 	// Bounds checking -- make sure you haven't dropped off the end of the array
-	if ((low_Te == log_temperature.size()-1) or (low_Te == -1)){
-		// An easy error to make is supplying the function arguments already having taken the log10
-		throw runtime_error("Interpolation on Te called to point off the grid for which it was defined (will give seg fault)");
-	};
-	if ((low_Ne == log_density.size()-1) or (low_Ne == -1)){
-		// An easy error to make is supplying the function arguments already having taken the log10
-		throw runtime_error("Interpolation on Ne called to point off the grid for which it was defined (will give seg fault)");
-	};
+        // An easy error to make is supplying the function arguments already having taken the log10
+        if (low_Te == log_temperature.size()-1) {
+          // Te out of bounds on high side
+
+          if (!warned_te_range) {
+            // Print warning the first time this occurs
+            std::cerr << "WARNING (Atomicpp::RateCoefficient): log Te too high (" <<  eval_log10_Te << " > " << *log_temperature.end() << ")\n";
+            warned_te_range = true;
+          }
+          eval_log10_Te = *log_temperature.end();
+          low_Te == log_temperature.size()-2;
+          
+        } else if (low_Te == -1) {
+          // Te out of bounds on low side
+
+          if (!warned_te_range) {
+            std::cerr << "WARNING (Atomicpp::RateCoefficient): log Te too low (" <<  eval_log10_Te << " < " << *log_temperature.begin() << ")\n";
+            warned_te_range = true;
+          }
+          eval_log10_Te = *log_temperature.begin();
+          low_Te = 0;
+        }
+        
+	if (low_Ne == log_density.size()-1) {
+          // Ne out of bounds on high side
+          if (!warned_ne_range) {
+            std::cerr << "WARNING (Atomicpp::RateCoefficient): log Ne too high (" <<  eval_log10_Ne << " > " << *log_density.end() << ")\n";
+            warned_ne_range = true;
+          }
+          eval_log10_Ne = *log_density.end();
+          low_Ne = log_density.size()-2;
+          
+        } else if (low_Ne == -1) {
+          // Ne out of bounds on low side
+          if (!warned_ne_range) {
+            std::cerr << "WARNING (Atomicpp::RateCoefficient): log Ne too low (" <<  eval_log10_Ne << " < " << *log_density.begin() << ")\n";
+            warned_ne_range = true;
+          }
+          eval_log10_Ne = *log_density.begin();
+          low_Ne = 0;
+	}
 
 	int high_Te = low_Te + 1;
 	int high_ne = low_Ne + 1;

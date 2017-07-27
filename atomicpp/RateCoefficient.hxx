@@ -56,5 +56,7 @@
 			vector<vector< vector<double> > > log_coeff;
 			vector<double> log_temperature;
 			vector<double> log_density;
+          bool warned_te_range = false; // If a warning about Te range has been printed
+          bool warned_ne_range = false; // If a warning about Ne range has been printed
 		};
 #endif
