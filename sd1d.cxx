@@ -96,6 +96,9 @@ protected:
     OPTION(opt, ion_viscosity, false); // Braginskii parallel viscosity
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
 
+    OPTION(opt, charge_exchange, true);
+    OPTION(opt, recombination, true);
+    OPTION(opt, ionisation, true);
     OPTION(opt, elastic_scattering, false); // Include ion-neutral elastic scattering?
     OPTION(opt, excitation, false);    // Include electron impact excitation?
 
@@ -259,10 +262,10 @@ protected:
         SAVE_REPEAT3(Rrec,Riz,Rzrad); // Save radiation sources
         SAVE_REPEAT3(Erec,Eiz,Ecx);   // Save energy transfer
 
-        if(elastic_scattering) {
+        if (elastic_scattering) {
           SAVE_REPEAT2(Fel, Eel); // Elastic collision transfer channels
         }
-        if(excitation) {
+        if (excitation) {
           SAVE_REPEAT(Rex); // Electron-neutral excitation
         }
         
@@ -752,90 +755,97 @@ protected:
             
             ///////////////////////////////////////
             // Charge exchange
-            
-            BoutReal R_cx_L = Ne_L*Nn_L*hydrogen.chargeExchange(Te_L*Tnorm) * (Nnorm / Omega_ci);
-            BoutReal R_cx_C = Ne_C*Nn_C*hydrogen.chargeExchange(Te_C*Tnorm) * (Nnorm / Omega_ci);
-            BoutReal R_cx_R = Ne_R*Nn_R*hydrogen.chargeExchange(Te_R*Tnorm) * (Nnorm / Omega_ci);
-            
-            // Ecx is energy transferred to neutrals
-            Ecx(i,j,k) = (3./2)* (
-                                       J_L * (Te_L - Tn_L)*R_cx_L
-                                  + 4.*J_C * (Te_C - Tn_C)*R_cx_C
-                                  +    J_R * (Te_R - Tn_R)*R_cx_R
-                                  ) / (6. * J_C);
-            
-            // Fcx is friction between plasma and neutrals 
-            Fcx(i,j,k) = (
-                               J_L * (Vi_L - Vn_L)*R_cx_L
-                          + 4.*J_C * (Vi_C - Vn_C)*R_cx_C
-                          +    J_R * (Vi_R - Vn_R)*R_cx_R
-                          ) / (6. * J_C);
+
+            if (charge_exchange) {
+              BoutReal R_cx_L = Ne_L*Nn_L*hydrogen.chargeExchange(Te_L*Tnorm) * (Nnorm / Omega_ci);
+              BoutReal R_cx_C = Ne_C*Nn_C*hydrogen.chargeExchange(Te_C*Tnorm) * (Nnorm / Omega_ci);
+              BoutReal R_cx_R = Ne_R*Nn_R*hydrogen.chargeExchange(Te_R*Tnorm) * (Nnorm / Omega_ci);
+              
+              // Ecx is energy transferred to neutrals
+              Ecx(i,j,k) = (3./2)* (
+                                    J_L * (Te_L - Tn_L)*R_cx_L
+                                    + 4.*J_C * (Te_C - Tn_C)*R_cx_C
+                                    +    J_R * (Te_R - Tn_R)*R_cx_R
+                                    ) / (6. * J_C);
+              
+              // Fcx is friction between plasma and neutrals 
+              Fcx(i,j,k) = (
+                            J_L * (Vi_L - Vn_L)*R_cx_L
+                            + 4.*J_C * (Vi_C - Vn_C)*R_cx_C
+                            +    J_R * (Vi_R - Vn_R)*R_cx_R
+                            ) / (6. * J_C);
+            }
             
             ///////////////////////////////////////
             // Recombination
-            
-            BoutReal R_rc_L  = hydrogen.recombination(Ne_L*Nnorm, Te_L*Tnorm)*SQ(Ne_L) * Nnorm / Omega_ci;
-            BoutReal R_rc_C  = hydrogen.recombination(Ne_C*Nnorm, Te_C*Tnorm)*SQ(Ne_C) * Nnorm / Omega_ci;
-            BoutReal R_rc_R  = hydrogen.recombination(Ne_R*Nnorm, Te_R*Tnorm)*SQ(Ne_R) * Nnorm / Omega_ci;
-            
-            // Rrec is radiated energy, Erec is energy transferred to neutrals
-            // Factor of 1.09 so that recombination becomes an energy source at 5.25eV
-            Rrec(i,j,k) = (
-                                J_L * (1.09*Te_L - 13.6/Tnorm)*R_rc_L
-                           + 4.*J_C * (1.09*Te_C - 13.6/Tnorm)*R_rc_C
-                           +    J_R * (1.09*Te_R - 13.6/Tnorm)*R_rc_R
-                           ) / (6. * J_C);
-            
-            Erec(i,j,k) = (3./2) * (
-                                         J_L * Te_L * R_rc_L
-                                    + 4.*J_C * Te_C * R_rc_C
-                                    +    J_R * Te_R * R_rc_R
-                                    ) / (6. * J_C);
-	    
-            Frec(i,j,k) = (
-                                 J_L * Vi_L * R_rc_L
-                           + 4.* J_C * Vi_C * R_rc_C
-                           +     J_R * Vi_R * R_rc_R
-                           ) / (6. * J_C);
 
-            Srec(i,j,k) = (
-                                 J_L * R_rc_L
-                           + 4.* J_C * R_rc_C
-                           +     J_R * R_rc_R
-                           ) / (6. * J_C);
+            if (recombination) {
+              BoutReal R_rc_L  = hydrogen.recombination(Ne_L*Nnorm, Te_L*Tnorm)*SQ(Ne_L) * Nnorm / Omega_ci;
+              BoutReal R_rc_C  = hydrogen.recombination(Ne_C*Nnorm, Te_C*Tnorm)*SQ(Ne_C) * Nnorm / Omega_ci;
+              BoutReal R_rc_R  = hydrogen.recombination(Ne_R*Nnorm, Te_R*Tnorm)*SQ(Ne_R) * Nnorm / Omega_ci;
+              
+              // Rrec is radiated energy, Erec is energy transferred to neutrals
+              // Factor of 1.09 so that recombination becomes an energy source at 5.25eV
+              Rrec(i,j,k) = (
+                             J_L * (1.09*Te_L - 13.6/Tnorm)*R_rc_L
+                             + 4.*J_C * (1.09*Te_C - 13.6/Tnorm)*R_rc_C
+                             +    J_R * (1.09*Te_R - 13.6/Tnorm)*R_rc_R
+                             ) / (6. * J_C);
+              
+              Erec(i,j,k) = (3./2) * (
+                                      J_L * Te_L * R_rc_L
+                                      + 4.*J_C * Te_C * R_rc_C
+                                      +    J_R * Te_R * R_rc_R
+                                      ) / (6. * J_C);
+              
+              Frec(i,j,k) = (
+                             J_L * Vi_L * R_rc_L
+                             + 4.* J_C * Vi_C * R_rc_C
+                             +     J_R * Vi_R * R_rc_R
+                             ) / (6. * J_C);
+              
+              Srec(i,j,k) = (
+                             J_L * R_rc_L
+                             + 4.* J_C * R_rc_C
+                             +     J_R * R_rc_R
+                             ) / (6. * J_C);
+            }
             
             ///////////////////////////////////////      
             // Ionisation
-            BoutReal R_iz_L = Ne_L*Nn_L*hydrogen.ionisation(Te_L*Tnorm) * Nnorm / Omega_ci;
-            BoutReal R_iz_C = Ne_C*Nn_C*hydrogen.ionisation(Te_C*Tnorm) * Nnorm / Omega_ci;
-            BoutReal R_iz_R = Ne_R*Nn_R*hydrogen.ionisation(Te_R*Tnorm) * Nnorm / Omega_ci;
             
-            Riz(i,j,k) = (Eionize/Tnorm) * (    // Energy loss per ionisation
-                                                 J_L * R_iz_L
-                                            + 4.*J_C * R_iz_C
-                                            +    J_R * R_iz_R
-                                             ) / (6. * J_C);   
-            Eiz(i,j,k) = -(3./2)* (   // Energy from neutral atom temperature
-                                          J_L * Tn_L * R_iz_L
-                                   + 4. * J_C * Tn_C * R_iz_C
-                                   +      J_R * Tn_R * R_iz_R
-                                  ) / (6. * J_C);
-
-            // Friction due to ionisation
-            Fiz(i,j,k) = - (
-                                   J_L * Vn_L * R_iz_L
-                            + 4. * J_C * Vn_C * R_iz_C
-                            +      J_R * Vn_R * R_iz_R
-                            ) / (6. * J_C);
+            if (ionisation) {
+              BoutReal R_iz_L = Ne_L*Nn_L*hydrogen.ionisation(Te_L*Tnorm) * Nnorm / Omega_ci;
+              BoutReal R_iz_C = Ne_C*Nn_C*hydrogen.ionisation(Te_C*Tnorm) * Nnorm / Omega_ci;
+              BoutReal R_iz_R = Ne_R*Nn_R*hydrogen.ionisation(Te_R*Tnorm) * Nnorm / Omega_ci;
+              
+              Riz(i,j,k) = (Eionize/Tnorm) * (    // Energy loss per ionisation
+                                              J_L * R_iz_L
+                                              + 4.*J_C * R_iz_C
+                                              +    J_R * R_iz_R
+                                                  ) / (6. * J_C);   
+              Eiz(i,j,k) = -(3./2)* (   // Energy from neutral atom temperature
+                                     J_L * Tn_L * R_iz_L
+                                     + 4. * J_C * Tn_C * R_iz_C
+                                     +      J_R * Tn_R * R_iz_R
+                                        ) / (6. * J_C);
+              
+              // Friction due to ionisation
+              Fiz(i,j,k) = - (
+                              J_L * Vn_L * R_iz_L
+                              + 4. * J_C * Vn_C * R_iz_C
+                              +      J_R * Vn_R * R_iz_R
+                              ) / (6. * J_C);
+              
+              // Plasma sink due to ionisation (negative)
+              Siz(i,j,k) = - (
+                              J_L * R_iz_L
+                              + 4.* J_C * R_iz_C
+                              +     J_R * R_iz_R
+                              ) / (6. * J_C);
+            }
             
-            // Plasma sink due to ionisation (negative)
-            Siz(i,j,k) = - (
-                                 J_L * R_iz_L
-                           + 4.* J_C * R_iz_C
-                           +     J_R * R_iz_R
-                            ) / (6. * J_C);
-            
-            if(elastic_scattering) {
+            if (elastic_scattering) {
               /////////////////////////////////////////////////////////
               // Ion-neutral elastic scattering
               //
@@ -868,7 +878,7 @@ protected:
                                   ) / (6. * J_C);
             }
 
-            if(excitation) {
+            if (excitation) {
               /////////////////////////////////////////////////////////
               // Electron-neutral excitation
               // Note: Rates need checking
@@ -1529,6 +1539,10 @@ private:
   Field3D eta_i;        // Braginskii ion viscosity
   bool ion_viscosity;   // Braginskii ion viscosity on/off
   bool heat_conduction; // Thermal conduction on/off
+
+  bool charge_exchange; // Charge exchange between plasma and neutrals. Doesn't affect neutral diffusion
+  bool recombination;   // Recombination plasma particle sink
+  bool ionisation;      // Ionisation plasma particle source. Doesn't affect neutral diffusion
   bool elastic_scattering; // Ion-neutral elastic scattering
   bool excitation;      // Include electron-neutral excitation
   
