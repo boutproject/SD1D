@@ -307,8 +307,9 @@ protected:
     opt->get("redist_weight", redist_string, "1.0");
     redist_weight = ffact.create2D(redist_string, opt);
     BoutReal localweight = 0.0;
+    Coordinates *coord = mesh->coordinates();
     for(int j=mesh->ystart;j<=mesh->yend;j++) {
-      localweight += redist_weight(mesh->xstart, j);
+      localweight += redist_weight(mesh->xstart, j) * coord->J(mesh->xstart, j) * coord->dy(mesh->xstart,j);
     }
 
     MPI_Comm ycomm = mesh->getYcomm(mesh->xstart); // MPI communicator
@@ -316,7 +317,10 @@ protected:
     // Calculate total weight by summing over all processors
     BoutReal totalweight;
     MPI_Allreduce(&localweight, &totalweight, 1, MPI_DOUBLE, MPI_SUM, ycomm);
-    // Normalise redist_weight so sum over domain is 1
+    // Normalise redist_weight so sum over domain:
+    //
+    // sum ( redist_weight * J * dy ) = 1
+    // 
     redist_weight /= totalweight;
     
     setPrecon( (preconfunc) &SD1D::precon );
@@ -425,7 +429,7 @@ protected:
               BoutReal vth_n = sqrt(tn); // Normalised to Cs0
               
               // Neutral-neutral mean free path
-              BoutReal Lmax = 1.0; // meters
+              BoutReal Lmax = 0.1; // meters
               BoutReal a0 = PI*SQ(5.29e-11);
               BoutReal lambda_nn = 1. / (Nnorm*Nnlim(i,j,k)*a0); // meters
               if(lambda_nn > Lmax) {
@@ -1337,7 +1341,10 @@ protected:
         // Distribute along length
         for(int j=mesh->ystart;j<=mesh->yend;j++) {
           // Neutrals into this cell
-          BoutReal ncell = nredist * redist_weight(mesh->xstart,j) / ( coord->J(mesh->xstart,j) * coord->dy(mesh->xstart,j) );
+          // Note: from earlier normalisation the sum ( redist_weight * J * dy ) = 1
+          // This ensures that if redist_weight is constant then the source of particles per volume
+          // is also constant.
+          BoutReal ncell = nredist * redist_weight(mesh->xstart,j);
           
           ddt(Nn)(mesh->xstart, j, 0) += ncell;
           
