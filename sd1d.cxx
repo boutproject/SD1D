@@ -97,6 +97,7 @@ protected:
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
 
     OPTION(opt, charge_exchange, true);
+    OPTION(opt, charge_exchange_mom_lost, false); 
     OPTION(opt, recombination, true);
     OPTION(opt, ionisation, true);
     OPTION(opt, elastic_scattering, false); // Include ion-neutral elastic scattering?
@@ -353,7 +354,7 @@ protected:
    *
    */
   int rhs(BoutReal time) {
-    fprintf(stderr, "\rTime: %e", time);
+    //fprintf(stderr, "\rTime: %e", time);
 
     Coordinates *coord = mesh->coordinates();
 
@@ -1223,6 +1224,11 @@ protected:
         }else {
           ddt(NVn) = 0.0;
         }
+
+        if (charge_exchange_mom_lost) {
+          // Charge exchange momentum lost from the plasma, but not gained by the neutrals
+          ddt(NVn) -= Fcx;
+        }
         
         if(rhs_implicit) {
           if(viscos > 0.) {
@@ -1541,6 +1547,7 @@ private:
   bool heat_conduction; // Thermal conduction on/off
 
   bool charge_exchange; // Charge exchange between plasma and neutrals. Doesn't affect neutral diffusion
+  bool charge_exchange_mom_lost; // Charge-exchange momentum lost from plasma, not gained by neutrals
   bool recombination;   // Recombination plasma particle sink
   bool ionisation;      // Ionisation plasma particle source. Doesn't affect neutral diffusion
   bool elastic_scattering; // Ion-neutral elastic scattering
