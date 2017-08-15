@@ -6,15 +6,14 @@ void FluidFull::init(Solver *solver,
                      bool restarting,
                      const string &suffix, 
                      BoutReal Tnorm, BoutReal Nnorm,
-                     BoutReal Cs0, BoutReal rho_s0) : {
+                     BoutReal Cs0, BoutReal rho_s0) {
 
   // Specify evolving variables. Each fluid must have a distinct suffix to avoid
   // name clashes
-  solver->add(N, string("N")+suffix);
-  solver->add(P, string("P")+suffix);
-  solver->add(NVi, string("NV")+suffix);
-  
-  
+  solver->add(N, (string("N")+suffix).c_str());
+  solver->add(P, (string("P")+suffix).c_str());
+  solver->add(NV, (string("NV")+suffix).c_str());
+    
 }
 
 /// Calculate time derivatives
@@ -29,7 +28,10 @@ void FluidFull::rhs(BoutReal time) {
   T = P / N;
   
   // Apply boundary conditions
-  
+  V.applyBoundary("dirichlet_o2");
+  T.applyBoundary("neumann");
+  NV.applyBoundary("dirichlet_o2");
+  P.applyBoundary("neumann");
   
   // Calculate local sound speed
   // This is used in upwinding schemes to provide some dissipation
@@ -40,7 +42,7 @@ void FluidFull::rhs(BoutReal time) {
 
   // Parallel momentum
   ddt(NV) =
-    - Div_par_FV_FS(NVi, V, cs, false) // Momentum flow
+    - Div_par_FV_FS(NV, V, cs, false) // Momentum flow
     - Grad_par(P) / AA; // Pressure force
   ;
   
@@ -51,10 +53,6 @@ void FluidFull::rhs(BoutReal time) {
     - P*Div_par(V)*(gamma-1.0)            // Compression
     ;
 
-  if (diffusion_multiplier > 0.0) {
-    // Include a parallel diffusion driven by pressure
-    
-  }
 }
 
 BoutReal FluidFull::density(const DataIterator &i) {
