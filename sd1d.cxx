@@ -366,6 +366,8 @@ protected:
     
     Field3D Te = 0.5*P / Ne; // Assuming Te = Ti
     
+    mesh->communicate(Vi, Te);
+    
     Field3D Nnlim;
     Field3D Tn;
     if(atomic) {
