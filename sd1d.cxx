@@ -560,8 +560,14 @@ protected:
         //NVi(r.ind, jy, jz) = Ne(r.ind, jy, jz)  * Vi(r.ind, jy, jz);        
         //NVi(r.ind, jy, jz) = 2.*Nout * Vout - NVi(r.ind, mesh->yend, jz);
 
-        // Te zero gradient (Neumann)
-        Te(r.ind, jy, jz) = Te(r.ind, mesh->yend, jz);
+        
+        if (nonlocal_conduction) {
+          // Constant gradient
+          Te(r.ind, jy, jz) = 2.*Te(r.ind, mesh->yend, jz) - Te(r.ind, mesh->yend-1, jz);
+        } else {
+          // Te zero gradient (Neumann)
+          Te(r.ind, jy, jz) = Te(r.ind, mesh->yend, jz);
+        }
         
         P(r.ind, jy, jz) = 2.*Pout - P(r.ind, mesh->yend, jz);
         
