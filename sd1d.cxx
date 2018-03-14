@@ -265,7 +265,7 @@ protected:
         SAVE_REPEAT3(Rrec,Riz,Rzrad); // Save radiation sources
         SAVE_REPEAT3(Erec,Eiz,Ecx);   // Save energy transfer
         if (charge_exchange_escape) {
-          SAVE_REPEAT2(Dcx, Dcx_Ttot);             // Save particle loss of CX neutrals
+          SAVE_REPEAT2(Dcx, Dcx_T);             // Save particle loss of CX neutrals
         }
         
         if (elastic_scattering) {
@@ -292,7 +292,7 @@ protected:
     Frec = 0.0; Fiz = 0.0; Fcx = 0.0; Fel = 0.0;  F = 0.0;
     Rrec = 0.0; Riz = 0.0; Rzrad = 0.0; Rex = 0.0; R = 0.0;
     Erec = 0.0; Eiz = 0.0; Ecx = 0.0; Eel = 0.0;  E = 0.0;
-    Dcx = 0.0;
+    Dcx = 0.0; Dcx_T = 0.0;
     
     flux_ion = 0.0;
     
@@ -739,8 +739,6 @@ protected:
       } // else Rzrad = 0.0 set in init()
       
       E = 0.0; // Energy transfer to neutrals
-      
-      Dcx_Ttot = 0.0; // Integral of escaping CX energy
         
       // Lower floor on Nn for atomic rates
       Field3D Nnlim2 = floor(Nn, 0.0);
@@ -792,15 +790,14 @@ protected:
                             +    J_R * R_cx_R
                             ) / (6. * J_C);
 
-              // Integral of the energy lost from the plasma over the volume
-              // This gives the average temperature of the CX neutrals when
-              // divided by the integral of Dcx
-              // Note the factor of dy to get a volume integral
-              Dcx_Ttot += (
-                           J_L * Te_L*R_cx_L
-                           + 4.*J_C * Te_C*R_cx_C
-                           +    J_R * Te_R*R_cx_R
-                           ) * coord->dy(i,j) / 6.;
+              // Energy lost from the plasma
+              // This gives the temperature of the CX neutrals when
+              // divided by Dcx
+              Dcx_T(i,j,k) = (
+                              J_L * Te_L*R_cx_L
+                              + 4.*J_C * Te_C*R_cx_C
+                              +    J_R * Te_R*R_cx_R
+                              ) / (6. * J_C);
             }
             
             ///////////////////////////////////////
@@ -985,12 +982,6 @@ protected:
       
       if (atomic) {
         ddt(Ne) -= S;                  // Sink to recombination
-
-        if (charge_exchange_escape) {
-          // Charge exchanged fast neutrals lost from the plasma,
-          // so acts as a local sink of plasma particles
-          ddt(Ne) -= Dcx;
-        }
       }
       
       if(volume_source) {
@@ -1227,6 +1218,15 @@ protected:
           + S                         // Source from recombining plasma
           - nloss*Nn                  // Loss of neutrals from the system
           ;
+
+        
+        if (charge_exchange_escape) {
+          // Charge exchanged fast neutrals lost from the plasma,
+          // so acts as a local sink of neutral particles. These particles
+          // are redistributed and added back later
+          ddt(Nn) -= Dcx;
+        }
+        
       }else {
         ddt(Nn) = 0.0;
       }
@@ -1306,7 +1306,7 @@ protected:
         if (charge_exchange_escape) {
           // Fast neutrals escape from the plasma, being redistributed
           // Hence energy is not transferred to neutrals directly
-          ddt(Pn) -= (2./3) * Ecx;
+          ddt(Pn) -= Dcx_T;
         }
         
         if(rhs_implicit) {
@@ -1417,8 +1417,10 @@ protected:
           // These are redistributed, along with a fraction of their energy
 
           BoutReal Dcx_Ntot = 0.0;
+          BoutReal Dcx_Ttot = 0.0;
           for(int j=mesh->ystart;j<=mesh->yend;j++) {
             Dcx_Ntot += Dcx(mesh->xstart, j, 0) * coord->J(mesh->xstart,j) * coord->dy(mesh->xstart,j) ;
+            Dcx_Ttot += Dcx_T(mesh->xstart, j, 0) * coord->J(mesh->xstart,j) * coord->dy(mesh->xstart,j) ;
           }
 
           // Now sum on all processors
@@ -1427,7 +1429,7 @@ protected:
           MPI_Allreduce(send, recv, 2, MPI_DOUBLE, MPI_SUM, ycomm);
           Dcx_Ntot = recv[0];
           Dcx_Ttot = recv[1];
-
+          
           // Scale the energy of the returning CX neutrals
           Dcx_Ttot *= charge_exchange_return_fE;
           
@@ -1435,8 +1437,9 @@ protected:
           // sum ( redist_weight * J * dy ) = 1
           for (int j=mesh->ystart;j<=mesh->yend;j++) {
             ddt(Nn)(mesh->xstart, j, 0) += Dcx_Ntot * redist_weight(mesh->xstart,j);
-
-            if (evolve_pn) {
+          }
+          if (evolve_pn) {
+            for (int j=mesh->ystart;j<=mesh->yend;j++) {
               ddt(Pn)(mesh->xstart, j, 0) += Dcx_Ttot * redist_weight(mesh->xstart,j);
             }
           }
@@ -1643,8 +1646,8 @@ private:
   Field3D Frec, Fiz, Fcx, Fel;   // Plasma momentum sinks due to recombination, ionisation, charge exchange and elastic collisions
   Field3D Rrec, Riz, Rzrad, Rex; // Plasma power sinks due to recombination, ionisation, impurity radiation, and hydrogen excitation
   Field3D Erec, Eiz, Ecx, Eel;   // Transfer of power from plasma to neutrals
-  Field3D Dcx; // Redistribution of fast CX neutrals -> plasma particle loss
-  BoutReal Dcx_Ttot; // Integrated energy of the fast CX neutrals
+  Field3D Dcx; // Redistribution of fast CX neutrals -> neutral loss
+  Field3D Dcx_T; // Temperature of the fast CX neutrals
   
   Field3D S, F, E; // Exchange of particles, momentum and energy from plasma to neutrals
   Field3D R;       // Radiated power
