@@ -12,5 +12,12 @@
         "atomic_number": 7,
         "has_charge_exchange": false,
         "year": 1996
+    },
+    "ne": {
+        "name": "Neon",
+        "symbol": "ne",
+        "atomic_number": 10,
+        "has_charge_exchange": false,
+        "year": 1996
     }
 }
