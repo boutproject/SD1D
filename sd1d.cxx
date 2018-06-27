@@ -650,6 +650,9 @@ protected:
         // Density source, so dn/dt = source
         BoutReal error = density_upstream - Ne(r.ind, mesh->ystart, jz);
         
+        ASSERT2(finite(error));
+        ASSERT2(finite(density_error_integral));
+        
         // PI controller, using crude integral of the error
         if(density_error_lasttime < 0.0) {
           // First time
@@ -710,6 +713,7 @@ protected:
         
         // Broadcast the value of source from processor 0
         MPI_Bcast(&source, 1, MPI_DOUBLE, 0, BoutComm::get());
+        ASSERT2(finite(source));
         
         // Scale NeSource
         NeSource = source * NeSource0;
@@ -940,8 +944,13 @@ protected:
 
             // Total sink of plasma, source of neutrals
             S(i,j,k) = Srec(i,j,k) + Siz(i,j,k);
+            
+            ASSERT3(finite(R(i,j,k)));
+            ASSERT3(finite(E(i,j,k)));
+            ASSERT3(finite(F(i,j,k)));
+            ASSERT3(finite(S(i,j,k)));
           }
-        
+      
       if(!evolve_nvn && neutral_f_pn) {
         // Not evolving neutral momentum
         F = Grad_par(Pn);
@@ -1051,6 +1060,7 @@ protected:
       
       if(atomic) {
         // Friction with neutrals
+        TRACE("ddt(NVi) -= F");
         ddt(NVi) -= F;
       }
     }else {
