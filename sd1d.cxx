@@ -176,7 +176,7 @@ protected:
 
       // Save and load error integral from file, since
       // this determines the source function
-      solver->addToRestart(density_error_integral, "density_error_integral");
+      restart.add(density_error_integral, "density_error_integral");
       
       if(!restarting) {
         density_error_integral = 0.0;
