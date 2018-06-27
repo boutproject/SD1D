@@ -46,6 +46,10 @@
 #include "loadmetric.hxx"
 #include "radiation.hxx"
 
+// OpenADAS interface Atomicpp by T.Body
+#include "atomicpp/ImpuritySpecies.hxx"
+#include "atomicpp/Prad.hxx"
+
 class SD1D : public PhysicsModel {
 protected:
   int init(bool restarting) {
@@ -69,7 +73,6 @@ protected:
     OPTION(opt, gaspuff,  0.0); // Additional gas flux at target
     OPTION(opt, dneut, 1.0);    // Scale neutral gas diffusion
     OPTION(opt, nloss, 0.0);    // Neutral gas loss rate
-    OPTION(opt, fimp,  0.01);   // 1% impurity
     OPTION(opt, Eionize,   30);     // Energy loss per ionisation (30eV)
     OPTION(opt, sheath_gamma, 6.5); // Sheath heat transmission
     OPTION(opt, neutral_gamma, 0.25); // Neutral heat transmission
@@ -93,6 +96,12 @@ protected:
     OPTION(opt, ion_viscosity, false); // Braginskii parallel viscosity
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
 
+    OPTION(opt, charge_exchange, true);
+    OPTION(opt, charge_exchange_escape, false);
+    OPTION(opt, charge_exchange_return_fE, 1.0);
+    
+    OPTION(opt, recombination, true);
+    OPTION(opt, ionisation, true);
     OPTION(opt, elastic_scattering, false); // Include ion-neutral elastic scattering?
     OPTION(opt, excitation, false);    // Include electron impact excitation?
 
@@ -167,7 +176,7 @@ protected:
 
       // Save and load error integral from file, since
       // this determines the source function
-      solver->addToRestart(density_error_integral, "density_error_integral");
+      restart.add(density_error_integral, "density_error_integral");
       
       if(!restarting) {
         density_error_integral = 0.0;
@@ -219,9 +228,23 @@ protected:
     mesh->coordinates()->J = ffact.create2D(area_string, Options::getRoot());
     
     dy4 = SQ(SQ(mesh->coordinates()->dy));
+
+
+    //////////////////////////////////////////////////
+    // Impurities
+    OPTION(opt, fimp,  0.0);   // Fixed impurity fraction
     
-    // Use carbon radiation for the impurity
-    rad = new HutchinsonCarbonRadiation();
+    OPTION(opt, impurity_adas, false);
+    if (impurity_adas) {
+      // Use OpenADAS data through Atomicpp
+      // Find out which species to model
+      string impurity_species;
+      OPTION(opt, impurity_species, "c");
+      impurity = new ImpuritySpecies(impurity_species);
+    } else {
+      // Use carbon radiation for the impurity
+      rad = new HutchinsonCarbonRadiation();
+    }
 
     // Add extra quantities to be saved
     if(atomic) {
@@ -241,11 +264,14 @@ protected:
         SAVE_REPEAT3(Frec,Fiz,Fcx);   // Save momentum sources
         SAVE_REPEAT3(Rrec,Riz,Rzrad); // Save radiation sources
         SAVE_REPEAT3(Erec,Eiz,Ecx);   // Save energy transfer
-
-        if(elastic_scattering) {
+        if (charge_exchange_escape) {
+          SAVE_REPEAT2(Dcx, Dcx_T);             // Save particle loss of CX neutrals
+        }
+        
+        if (elastic_scattering) {
           SAVE_REPEAT2(Fel, Eel); // Elastic collision transfer channels
         }
-        if(excitation) {
+        if (excitation) {
           SAVE_REPEAT(Rex); // Electron-neutral excitation
         }
         
@@ -266,6 +292,7 @@ protected:
     Frec = 0.0; Fiz = 0.0; Fcx = 0.0; Fel = 0.0;  F = 0.0;
     Rrec = 0.0; Riz = 0.0; Rzrad = 0.0; Rex = 0.0; R = 0.0;
     Erec = 0.0; Eiz = 0.0; Ecx = 0.0; Eel = 0.0;  E = 0.0;
+    Dcx = 0.0; Dcx_T = 0.0;
     
     flux_ion = 0.0;
     
@@ -290,8 +317,9 @@ protected:
     opt->get("redist_weight", redist_string, "1.0");
     redist_weight = ffact.create2D(redist_string, opt);
     BoutReal localweight = 0.0;
+    Coordinates *coord = mesh->coordinates();
     for(int j=mesh->ystart;j<=mesh->yend;j++) {
-      localweight += redist_weight(mesh->xstart, j);
+      localweight += redist_weight(mesh->xstart, j) * coord->J(mesh->xstart, j) * coord->dy(mesh->xstart,j);
     }
 
     MPI_Comm ycomm = mesh->getYcomm(mesh->xstart); // MPI communicator
@@ -299,7 +327,10 @@ protected:
     // Calculate total weight by summing over all processors
     BoutReal totalweight;
     MPI_Allreduce(&localweight, &totalweight, 1, MPI_DOUBLE, MPI_SUM, ycomm);
-    // Normalise redist_weight so sum over domain is 1
+    // Normalise redist_weight so sum over domain:
+    //
+    // sum ( redist_weight * J * dy ) = 1
+    // 
     redist_weight /= totalweight;
     
     setPrecon( (preconfunc) &SD1D::precon );
@@ -329,7 +360,7 @@ protected:
    *
    */
   int rhs(BoutReal time) {
-    fprintf(stderr, "\rTime: %e", time);
+    //fprintf(stderr, "\rTime: %e", time);
 
     Coordinates *coord = mesh->coordinates();
 
@@ -408,7 +439,7 @@ protected:
               BoutReal vth_n = sqrt(tn); // Normalised to Cs0
               
               // Neutral-neutral mean free path
-              BoutReal Lmax = 1.0; // meters
+              BoutReal Lmax = 0.1; // meters
               BoutReal a0 = PI*SQ(5.29e-11);
               BoutReal lambda_nn = 1. / (Nnorm*Nnlim(i,j,k)*a0); // meters
               if(lambda_nn > Lmax) {
@@ -619,6 +650,9 @@ protected:
         // Density source, so dn/dt = source
         BoutReal error = density_upstream - Ne(r.ind, mesh->ystart, jz);
         
+        ASSERT2(finite(error));
+        ASSERT2(finite(density_error_integral));
+        
         // PI controller, using crude integral of the error
         if(density_error_lasttime < 0.0) {
           // First time
@@ -679,6 +713,7 @@ protected:
         
         // Broadcast the value of source from processor 0
         MPI_Bcast(&source, 1, MPI_DOUBLE, 0, BoutComm::get());
+        ASSERT2(finite(source));
         
         // Scale NeSource
         NeSource = source * NeSource0;
@@ -690,13 +725,25 @@ protected:
       TRACE("Atomic");
       
       if(fimp > 0.0) {
-        // Impurity radiation 
-        Rzrad = rad->power(Te*Tnorm, Ne*Nnorm, Ne*(Nnorm*fimp)); // J / m^3 / s
+        // Impurity radiation
+
+        if (impurity_adas) {
+          Rzrad.allocate();
+          for (auto &i : Rzrad) {
+            Rzrad[i] = computeRadiatedPower( *impurity,
+                                             Te[i]*Tnorm,  // electron temperature [eV]
+                                             Ne[i]*Nnorm,  // electron density [m^-3]
+                                             fimp*Ne[i]*Nnorm, // impurity density [m^-3]
+                                             Nn[i]*Nnorm ); // Neutral density [m^-3]
+          }
+        } else {
+          Rzrad = rad->power(Te*Tnorm, Ne*Nnorm, Ne*(Nnorm*fimp)); // J / m^3 / s
+        }
         Rzrad /= SI::qe*Tnorm*Nnorm * Omega_ci; // Normalise
       } // else Rzrad = 0.0 set in init()
       
       E = 0.0; // Energy transfer to neutrals
-
+        
       // Lower floor on Nn for atomic rates
       Field3D Nnlim2 = floor(Nn, 0.0);
       
@@ -719,90 +766,114 @@ protected:
             
             ///////////////////////////////////////
             // Charge exchange
-            
-            BoutReal R_cx_L = Ne_L*Nn_L*hydrogen.chargeExchange(Te_L*Tnorm) * (Nnorm / Omega_ci);
-            BoutReal R_cx_C = Ne_C*Nn_C*hydrogen.chargeExchange(Te_C*Tnorm) * (Nnorm / Omega_ci);
-            BoutReal R_cx_R = Ne_R*Nn_R*hydrogen.chargeExchange(Te_R*Tnorm) * (Nnorm / Omega_ci);
-            
-            // Ecx is energy transferred to neutrals
-            Ecx(i,j,k) = (3./2)* (
-                                       J_L * (Te_L - Tn_L)*R_cx_L
-                                  + 4.*J_C * (Te_C - Tn_C)*R_cx_C
-                                  +    J_R * (Te_R - Tn_R)*R_cx_R
-                                  ) / (6. * J_C);
-            
-            // Fcx is friction between plasma and neutrals 
-            Fcx(i,j,k) = (
-                               J_L * (Vi_L - Vn_L)*R_cx_L
-                          + 4.*J_C * (Vi_C - Vn_C)*R_cx_C
-                          +    J_R * (Vi_R - Vn_R)*R_cx_R
-                          ) / (6. * J_C);
+
+            if (charge_exchange) {
+              BoutReal R_cx_L = Ne_L*Nn_L*hydrogen.chargeExchange(Te_L*Tnorm) * (Nnorm / Omega_ci);
+              BoutReal R_cx_C = Ne_C*Nn_C*hydrogen.chargeExchange(Te_C*Tnorm) * (Nnorm / Omega_ci);
+              BoutReal R_cx_R = Ne_R*Nn_R*hydrogen.chargeExchange(Te_R*Tnorm) * (Nnorm / Omega_ci);
+              
+              // Ecx is energy transferred to neutrals
+              Ecx(i,j,k) = (3./2)* (
+                                    J_L * (Te_L - Tn_L)*R_cx_L
+                                    + 4.*J_C * (Te_C - Tn_C)*R_cx_C
+                                    +    J_R * (Te_R - Tn_R)*R_cx_R
+                                    ) / (6. * J_C);
+              
+              // Fcx is friction between plasma and neutrals 
+              Fcx(i,j,k) = (
+                            J_L * (Vi_L - Vn_L)*R_cx_L
+                            + 4.*J_C * (Vi_C - Vn_C)*R_cx_C
+                            +    J_R * (Vi_R - Vn_R)*R_cx_R
+                            ) / (6. * J_C);
+
+              // Dcx is a redistribution of fast neutrals due to charge exchange
+              // Acts as a sink of plasma density
+              Dcx(i,j,k) = (
+                            J_L * R_cx_L
+                            + 4.*J_C * R_cx_C
+                            +    J_R * R_cx_R
+                            ) / (6. * J_C);
+
+              // Energy lost from the plasma
+              // This gives the temperature of the CX neutrals when
+              // divided by Dcx
+              Dcx_T(i,j,k) = (
+                              J_L * Te_L*R_cx_L
+                              + 4.*J_C * Te_C*R_cx_C
+                              +    J_R * Te_R*R_cx_R
+                              ) / (6. * J_C);
+            }
             
             ///////////////////////////////////////
             // Recombination
-            
-            BoutReal R_rc_L  = hydrogen.recombination(Ne_L*Nnorm, Te_L*Tnorm)*SQ(Ne_L) * Nnorm / Omega_ci;
-            BoutReal R_rc_C  = hydrogen.recombination(Ne_C*Nnorm, Te_C*Tnorm)*SQ(Ne_C) * Nnorm / Omega_ci;
-            BoutReal R_rc_R  = hydrogen.recombination(Ne_R*Nnorm, Te_R*Tnorm)*SQ(Ne_R) * Nnorm / Omega_ci;
-            
-            // Rrec is radiated energy, Erec is energy transferred to neutrals
-            // Factor of 1.09 so that recombination becomes an energy source at 5.25eV
-            Rrec(i,j,k) = (
-                                J_L * (1.09*Te_L - 13.6/Tnorm)*R_rc_L
-                           + 4.*J_C * (1.09*Te_C - 13.6/Tnorm)*R_rc_C
-                           +    J_R * (1.09*Te_R - 13.6/Tnorm)*R_rc_R
-                           ) / (6. * J_C);
-            
-            Erec(i,j,k) = (3./2) * (
-                                         J_L * Te_L * R_rc_L
-                                    + 4.*J_C * Te_C * R_rc_C
-                                    +    J_R * Te_R * R_rc_R
-                                    ) / (6. * J_C);
-	    
-            Frec(i,j,k) = (
-                                 J_L * Vi_L * R_rc_L
-                           + 4.* J_C * Vi_C * R_rc_C
-                           +     J_R * Vi_R * R_rc_R
-                           ) / (6. * J_C);
 
-            Srec(i,j,k) = (
-                                 J_L * R_rc_L
-                           + 4.* J_C * R_rc_C
-                           +     J_R * R_rc_R
-                           ) / (6. * J_C);
+            if (recombination) {
+              BoutReal R_rc_L  = hydrogen.recombination(Ne_L*Nnorm, Te_L*Tnorm)*SQ(Ne_L) * Nnorm / Omega_ci;
+              BoutReal R_rc_C  = hydrogen.recombination(Ne_C*Nnorm, Te_C*Tnorm)*SQ(Ne_C) * Nnorm / Omega_ci;
+              BoutReal R_rc_R  = hydrogen.recombination(Ne_R*Nnorm, Te_R*Tnorm)*SQ(Ne_R) * Nnorm / Omega_ci;
+              
+              // Rrec is radiated energy, Erec is energy transferred to neutrals
+              // Factor of 1.09 so that recombination becomes an energy source at 5.25eV
+              Rrec(i,j,k) = (
+                             J_L * (1.09*Te_L - 13.6/Tnorm)*R_rc_L
+                             + 4.*J_C * (1.09*Te_C - 13.6/Tnorm)*R_rc_C
+                             +    J_R * (1.09*Te_R - 13.6/Tnorm)*R_rc_R
+                             ) / (6. * J_C);
+              
+              Erec(i,j,k) = (3./2) * (
+                                      J_L * Te_L * R_rc_L
+                                      + 4.*J_C * Te_C * R_rc_C
+                                      +    J_R * Te_R * R_rc_R
+                                      ) / (6. * J_C);
+              
+              Frec(i,j,k) = (
+                             J_L * Vi_L * R_rc_L
+                             + 4.* J_C * Vi_C * R_rc_C
+                             +     J_R * Vi_R * R_rc_R
+                             ) / (6. * J_C);
+              
+              Srec(i,j,k) = (
+                             J_L * R_rc_L
+                             + 4.* J_C * R_rc_C
+                             +     J_R * R_rc_R
+                             ) / (6. * J_C);
+            }
             
             ///////////////////////////////////////      
             // Ionisation
-            BoutReal R_iz_L = Ne_L*Nn_L*hydrogen.ionisation(Te_L*Tnorm) * Nnorm / Omega_ci;
-            BoutReal R_iz_C = Ne_C*Nn_C*hydrogen.ionisation(Te_C*Tnorm) * Nnorm / Omega_ci;
-            BoutReal R_iz_R = Ne_R*Nn_R*hydrogen.ionisation(Te_R*Tnorm) * Nnorm / Omega_ci;
             
-            Riz(i,j,k) = (Eionize/Tnorm) * (    // Energy loss per ionisation
-                                                 J_L * R_iz_L
-                                            + 4.*J_C * R_iz_C
-                                            +    J_R * R_iz_R
-                                             ) / (6. * J_C);   
-            Eiz(i,j,k) = -(3./2)* (   // Energy from neutral atom temperature
-                                          J_L * Tn_L * R_iz_L
-                                   + 4. * J_C * Tn_C * R_iz_C
-                                   +      J_R * Tn_R * R_iz_R
-                                  ) / (6. * J_C);
-
-            // Friction due to ionisation
-            Fiz(i,j,k) = - (
-                                   J_L * Vn_L * R_iz_L
-                            + 4. * J_C * Vn_C * R_iz_C
-                            +      J_R * Vn_R * R_iz_R
-                            ) / (6. * J_C);
+            if (ionisation) {
+              BoutReal R_iz_L = Ne_L*Nn_L*hydrogen.ionisation(Te_L*Tnorm) * Nnorm / Omega_ci;
+              BoutReal R_iz_C = Ne_C*Nn_C*hydrogen.ionisation(Te_C*Tnorm) * Nnorm / Omega_ci;
+              BoutReal R_iz_R = Ne_R*Nn_R*hydrogen.ionisation(Te_R*Tnorm) * Nnorm / Omega_ci;
+              
+              Riz(i,j,k) = (Eionize/Tnorm) * (    // Energy loss per ionisation
+                                              J_L * R_iz_L
+                                              + 4.*J_C * R_iz_C
+                                              +    J_R * R_iz_R
+                                                  ) / (6. * J_C);   
+              Eiz(i,j,k) = -(3./2)* (   // Energy from neutral atom temperature
+                                     J_L * Tn_L * R_iz_L
+                                     + 4. * J_C * Tn_C * R_iz_C
+                                     +      J_R * Tn_R * R_iz_R
+                                        ) / (6. * J_C);
+              
+              // Friction due to ionisation
+              Fiz(i,j,k) = - (
+                              J_L * Vn_L * R_iz_L
+                              + 4. * J_C * Vn_C * R_iz_C
+                              +      J_R * Vn_R * R_iz_R
+                              ) / (6. * J_C);
+              
+              // Plasma sink due to ionisation (negative)
+              Siz(i,j,k) = - (
+                              J_L * R_iz_L
+                              + 4.* J_C * R_iz_C
+                              +     J_R * R_iz_R
+                              ) / (6. * J_C);
+            }
             
-            // Plasma sink due to ionisation (negative)
-            Siz(i,j,k) = - (
-                                 J_L * R_iz_L
-                           + 4.* J_C * R_iz_C
-                           +     J_R * R_iz_R
-                            ) / (6. * J_C);
-            
-            if(elastic_scattering) {
+            if (elastic_scattering) {
               /////////////////////////////////////////////////////////
               // Ion-neutral elastic scattering
               //
@@ -835,7 +906,7 @@ protected:
                                   ) / (6. * J_C);
             }
 
-            if(excitation) {
+            if (excitation) {
               /////////////////////////////////////////////////////////
               // Electron-neutral excitation
               // Note: Rates need checking
@@ -873,8 +944,13 @@ protected:
 
             // Total sink of plasma, source of neutrals
             S(i,j,k) = Srec(i,j,k) + Siz(i,j,k);
+            
+            ASSERT3(finite(R(i,j,k)));
+            ASSERT3(finite(E(i,j,k)));
+            ASSERT3(finite(F(i,j,k)));
+            ASSERT3(finite(S(i,j,k)));
           }
-        
+      
       if(!evolve_nvn && neutral_f_pn) {
         // Not evolving neutral momentum
         F = Grad_par(Pn);
@@ -913,7 +989,7 @@ protected:
         throw BoutException("Unrecognised density_form (%d)", density_form);
       }
       
-      if(atomic) {
+      if (atomic) {
         ddt(Ne) -= S;                  // Sink to recombination
       }
       
@@ -984,6 +1060,7 @@ protected:
       
       if(atomic) {
         // Friction with neutrals
+        TRACE("ddt(NVi) -= F");
         ddt(NVi) -= F;
       }
     }else {
@@ -1151,6 +1228,15 @@ protected:
           + S                         // Source from recombining plasma
           - nloss*Nn                  // Loss of neutrals from the system
           ;
+
+        
+        if (charge_exchange_escape) {
+          // Charge exchanged fast neutrals lost from the plasma,
+          // so acts as a local sink of neutral particles. These particles
+          // are redistributed and added back later
+          ddt(Nn) -= Dcx;
+        }
+        
       }else {
         ddt(Nn) = 0.0;
       }
@@ -1179,6 +1265,11 @@ protected:
             ;
         }else {
           ddt(NVn) = 0.0;
+        }
+
+        if (charge_exchange_escape) {
+          // Charge exchange momentum lost from the plasma, but not gained by the neutrals
+          ddt(NVn) -= Fcx;
         }
         
         if(rhs_implicit) {
@@ -1220,6 +1311,12 @@ protected:
             + (2./3) * E                             // Energy transferred to neutrals
             - nloss * Pn                             // Loss of neutrals from the system
             ;
+        }
+
+        if (charge_exchange_escape) {
+          // Fast neutrals escape from the plasma, being redistributed
+          // Hence energy is not transferred to neutrals directly
+          ddt(Pn) -= Dcx_T;
         }
         
         if(rhs_implicit) {
@@ -1296,7 +1393,8 @@ protected:
           
           // Divide flux_ion by J so that the result in the output file has units of flux per m^2
           flux_ion /= coord->J(mesh->xstart, mesh->yend+1);
-        }
+        }        
+        
         // Now broadcast redistributed neutrals to other processors
         MPI_Comm ycomm = mesh->getYcomm(mesh->xstart); // MPI communicator
         int np; MPI_Comm_size(ycomm, &np); // Number of processors
@@ -1308,7 +1406,10 @@ protected:
         // Distribute along length
         for(int j=mesh->ystart;j<=mesh->yend;j++) {
           // Neutrals into this cell
-          BoutReal ncell = nredist * redist_weight(mesh->xstart,j) / ( coord->J(mesh->xstart,j) * coord->dy(mesh->xstart,j) );
+          // Note: from earlier normalisation the sum ( redist_weight * J * dy ) = 1
+          // This ensures that if redist_weight is constant then the source of particles per volume
+          // is also constant.
+          BoutReal ncell = nredist * redist_weight(mesh->xstart,j);
           
           ddt(Nn)(mesh->xstart, j, 0) += ncell;
           
@@ -1318,6 +1419,41 @@ protected:
             // Set temperature of the incoming neutrals to F-C
             ddt(Pn)(mesh->xstart, j, 0) += ncell * (3.5/Tnorm);
           }
+        }
+
+        
+        if (charge_exchange_escape) {
+          // Fast CX neutrals lost from plasma.
+          // These are redistributed, along with a fraction of their energy
+
+          BoutReal Dcx_Ntot = 0.0;
+          BoutReal Dcx_Ttot = 0.0;
+          for(int j=mesh->ystart;j<=mesh->yend;j++) {
+            Dcx_Ntot += Dcx(mesh->xstart, j, 0) * coord->J(mesh->xstart,j) * coord->dy(mesh->xstart,j) ;
+            Dcx_Ttot += Dcx_T(mesh->xstart, j, 0) * coord->J(mesh->xstart,j) * coord->dy(mesh->xstart,j) ;
+          }
+
+          // Now sum on all processors
+          BoutReal send[2] = {Dcx_Ntot, Dcx_Ttot};
+          BoutReal recv[2];
+          MPI_Allreduce(send, recv, 2, MPI_DOUBLE, MPI_SUM, ycomm);
+          Dcx_Ntot = recv[0];
+          Dcx_Ttot = recv[1];
+          
+          // Scale the energy of the returning CX neutrals
+          Dcx_Ttot *= charge_exchange_return_fE;
+          
+          // Use the normalised redistribuion weight
+          // sum ( redist_weight * J * dy ) = 1
+          for (int j=mesh->ystart;j<=mesh->yend;j++) {
+            ddt(Nn)(mesh->xstart, j, 0) += Dcx_Ntot * redist_weight(mesh->xstart,j);
+          }
+          if (evolve_pn) {
+            for (int j=mesh->ystart;j<=mesh->yend;j++) {
+              ddt(Pn)(mesh->xstart, j, 0) += Dcx_Ttot * redist_weight(mesh->xstart,j);
+            }
+          }
+          
         }
       }
     }
@@ -1493,6 +1629,13 @@ private:
   Field3D eta_i;        // Braginskii ion viscosity
   bool ion_viscosity;   // Braginskii ion viscosity on/off
   bool heat_conduction; // Thermal conduction on/off
+
+  bool charge_exchange; // Charge exchange between plasma and neutrals. Doesn't affect neutral diffusion
+  bool charge_exchange_escape; // Charge-exchange momentum lost from plasma, not gained by neutrals
+  BoutReal charge_exchange_return_fE; // Fraction of energy carried by returning CX neutrals
+  
+  bool recombination;   // Recombination plasma particle sink
+  bool ionisation;      // Ionisation plasma particle source. Doesn't affect neutral diffusion
   bool elastic_scattering; // Ion-neutral elastic scattering
   bool excitation;      // Include electron-neutral excitation
   
@@ -1513,14 +1656,20 @@ private:
   Field3D Frec, Fiz, Fcx, Fel;   // Plasma momentum sinks due to recombination, ionisation, charge exchange and elastic collisions
   Field3D Rrec, Riz, Rzrad, Rex; // Plasma power sinks due to recombination, ionisation, impurity radiation, and hydrogen excitation
   Field3D Erec, Eiz, Ecx, Eel;   // Transfer of power from plasma to neutrals
+  Field3D Dcx; // Redistribution of fast CX neutrals -> neutral loss
+  Field3D Dcx_T; // Temperature of the fast CX neutrals
   
   Field3D S, F, E; // Exchange of particles, momentum and energy from plasma to neutrals
   Field3D R;       // Radiated power
   
-  RadiatedPower *rad;            // Impurity atomic rates
   UpdatedRadiatedPower hydrogen; // Atomic rates
+
   
   BoutReal fimp;     // Impurity fraction (of Ne)
+  bool impurity_adas;  // True if using ImpuritySpecies, false if using RadiatedPower
+  ImpuritySpecies *impurity;     // Atomicpp impurity
+  RadiatedPower *rad;            // Impurity atomic rates
+  
   BoutReal Eionize;  // Ionisation energy loss
   
   bool neutral_f_pn; // When not evolving NVn, use F = Grad_par(Pn)
