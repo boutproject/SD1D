@@ -16,13 +16,19 @@ from boutdata import collect
 from numpy import zeros
 
 # Check command-line arguments
-if len(sys.argv) != 2:
+if len(sys.argv) < 2:
     # Print usage information
-    print("Usage: {0} path\n e.g. {0} data".format(sys.argv[0]))
+    print("Usage: {0} path\n e.g. {0} data [zoom]".format(sys.argv[0]))
     sys.exit(1)
     
-# First (and only) argument is the path
+# First argument is the path
 path = sys.argv[1]
+
+if len(sys.argv) > 2:
+    # Optional second argument is length from target
+    zoomlength = float(sys.argv[2])
+else:
+    zoomlength = 1.0 # 1m default
 
 t = collect("t_array", path=path)
 tind = len(t)-1 # Get the last time point
@@ -73,7 +79,7 @@ plt.xlabel("Parallel location [m]")
 plt.ylabel(r"Plasma particle loss rate [m$^{-3}$s$^{-1}$]")
 plt.legend(loc="upper left")
 
-plt.savefig("processes_part.pdf")
+plt.savefig(path+"/processes_part.pdf")
 
 plt.show()
 
@@ -92,7 +98,7 @@ plt.xlabel("Parallel location [m]")
 plt.ylabel(r"Plasma momentum transfer to neutrals [m$^{-2}$s$^{-1}$]")
 plt.legend(loc="upper left")
 
-plt.savefig("processes_mom.pdf")
+plt.savefig(path+"/processes_mom.pdf")
 
 plt.show()
 
@@ -114,9 +120,11 @@ plt.xlabel("Parallel location [m]")
 plt.ylabel(r"Plasma energy loss rate [W m$^{-3}$]")
 plt.legend(loc="upper left")
 
-plt.xlim([29,30])
+plt.savefig(path+"/processes_energy.pdf")
 
-plt.savefig("processes_energy.pdf")
+plt.xlim([pos[-1]-zoomlength,pos[-1]]) # Zoom to last 1m
+
+plt.savefig(path+"/processes_energy_zoom.pdf")
 
 plt.show()
 
@@ -165,8 +173,11 @@ axarr[3].set_title(r"Plasma energy loss rate [W m$^{-3}$]")
 axarr[3].set_xlabel("Parallel location [m]")
 axarr[3].legend(loc="upper left")
 
-axarr[3].set_xlim([29,30])
 
-plt.savefig("processes_all.pdf")
+plt.savefig(path+"/processes_all.pdf")
+
+axarr[3].set_xlim([pos[-1]-zoomlength,pos[-1]])
+
+plt.savefig(path+"/processes_all_zoom.pdf")
 
 plt.show()
