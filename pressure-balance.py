@@ -1,5 +1,6 @@
 from boutdata import collect
 from numpy import zeros, sum, sqrt, sign
+import numpy as np
 
 import sys
 import matplotlib
@@ -24,12 +25,15 @@ ne = collect("Ne", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
 nvn = collect("NVn", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
 nn = collect("Nn", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
 
+J = collect("J", path=path)[0,:]
 
 # Normalisations
 nnorm = collect("Nnorm", path=path, tind=tind)
 tnorm = collect("Tnorm", path=path, tind=tind)
 pnorm = nnorm*tnorm*1.602e-19 # Converts p to Pascals
 cs0 = collect("Cs0", path=path)
+g_22 = collect("g_22", path=path)
+dldy = sqrt(g_22[0,0])
 
 
 p *= pnorm
@@ -44,7 +48,9 @@ pos[0] = -0.5*dy[1]
 pos[1] = 0.5*dy[1]
 for i in range(2,n):
     pos[i] = pos[i-1] + 0.5*dy[i-1] + 0.5*dy[i]
-    
+
+dl = dldy * dy # Normalised 
+   
 def replace_guards(var):
     """
     This in-place replaces the points in the guard cells with the points on the boundary
@@ -58,8 +64,36 @@ replace_guards(pn)
 replace_guards(ne)
 replace_guards(nn)
 
-dynamic_p = (nvi**2/ne) * pnorm #* sign(nvi)
-dynamic_n = (nvn**2/nn) * pnorm #* sign(nvn)
+dynamic_p = (nvi**2/ne) * pnorm
+dynamic_n = (nvn**2/nn) * pnorm
+
+########################################
+# Atomic processes
+
+Fvars = ["Frec", "Fiz", "Fcx", "Fel"]
+Fdata = {}
+for var in Fvars:
+    try:
+        Fdata[var] = collect(var, path=path, tind=tind)[-1,0,:,0]
+    except ValueError:
+        print("Could not read "+var)
+
+# Geometrical term, due to plasma flow in expanding magnetic field
+# (magnetic mirror)
+
+Fdata["Fgeo"] = -(nvi[1:-1]**2/ne[1:-1]) * np.gradient(np.log(1./J))/dl[1:-1]
+
+print("---\nUpstream pressure: {0}\n---".format(p[0]))
+
+# Integrate each of these forces along the length of the domain
+print("Pressure loss mechanisms:")
+total_loss = 0.0
+for var in Fdata:
+    integrated = np.sum(Fdata[var] * dl[1:-1])*pnorm
+    print(var + " -> " + str(integrated) + " Pa")
+    total_loss += integrated
+
+print("Total loss: {0} Pa".format(total_loss))
 
 ########################################
 # Static pressures
@@ -96,7 +130,6 @@ plt.show()
 ########################################
 # Static, dynamic
 
-
 fig, ax1 = plt.subplots()
 ax1.set_xlabel("Position [m]")
 ax1.set_ylabel("Pressure [Pa]")
@@ -112,7 +145,6 @@ ax1.plot(pos, p + pn + dynamic_p + dynamic_n, '-k', label="Total")
 l1 = ax1.legend()
 l1.set_zorder(0)   # Put legend at the back
 
-print("Upstream pressure: {0}".format(p[0]))
 print("""
 Target pressures
 ---
