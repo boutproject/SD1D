@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 
 from boutdata import collect
 from numpy import zeros
+import numpy as np
 
 # Check command-line arguments
 if len(sys.argv) < 2:
@@ -31,13 +32,18 @@ else:
     zoomlength = 1.0 # 1m default
 
 t = collect("t_array", path=path)
+J = collect("J", path=path)[0,:]
+dy = collect("dy", path=path)[0,:]
+dV = J*dy # Volume element
+
 tind = len(t)-1 # Get the last time point
 
-var_list = ["Ne", "P",       # Plasma profiles
+var_list = ["PeSource",      # Input pressure source
+            "Ne", "P",       # Plasma profiles
             "Srec", "Siz",   # Particle sources / sinks
             "Frec", "Fiz", "Fcx", "Fel",   # Momentum source / sinks to neutrals
             "Rrec", "Riz", "Rzrad", "Rex", # Radiation, energy loss from system
-            "Erec", "Eiz", "Ecx", "Eel",   # Energy transfer between neutrals and plasma
+            "E", "Erec", "Eiz", "Ecx", "Eel",   # Energy transfer between neutrals and plasma
             "Nnorm", "Tnorm", "Omega_ci", "rho_s0", "Cs0"]  # Normalisations
 
 ########################################################
@@ -104,6 +110,29 @@ plt.show()
 
 ########################################################
 # Energy losses
+
+input_power = (3./2)*np.sum(data["PeSource"] * dV)
+impurity_loss = np.sum(data["Rzrad"] * dV)
+ionisation_loss = np.sum(data["Riz"] * dV)
+recombination_loss = np.sum(data["Rrec"] * dV) # Note: Negative
+neut_loss = np.sum(data["E"] * dV)  # Note: can be negative
+if data["Rex"] is not None:
+    excitation_loss = np.sum(data["Rex"] * dV)
+    ionisation_loss += excitation_loss
+
+ion_source = np.sum(data["Siz"] * dV)
+    
+print("Effective Eionise = {0}".format(-data["Tnorm"] * ionisation_loss / ion_source))
+    
+iz_neut_loss = ionisation_loss + np.sum(data["E"] * dV)
+
+print("Input power: {0}".format(input_power))
+print("Impurity loss: {0} ({1} %)".format(impurity_loss, 100.*impurity_loss/input_power))
+print("Ionisation loss: {0} ({1} %)".format(ionisation_loss, 100.*ionisation_loss/input_power))
+print("Ionisation loss + neutral exchange: {0} ({1} %)".format(iz_neut_loss, 100.*iz_neut_loss/input_power))
+print("Ionisation / (Input - Impurity - Recombination - Neutrals): {0} %".format(100.*ionisation_loss / (input_power - impurity_loss - recombination_loss - neut_loss)))
+
+
 
 Enorm = 1.602e-19*data["Tnorm"]*data["Nnorm"]*data["Omega_ci"]
 
