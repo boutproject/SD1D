@@ -5,6 +5,8 @@
 from boutdata import collect
 from numpy import zeros, sum
 
+import os
+
 def heat_conduction(pos, Te, kappa0=2293.8117):
     """
     Calculate heat conduction in W/m^2 
@@ -85,6 +87,11 @@ def energy_flux(path, tind=-1):
     pnorm = nnorm*tnorm*1.602e-19 # Converts p to Pascals
     cs0 = collect("Cs0", path=path)
 
+    try:
+        kappa_epar = collect("kappa_epar", path=path, tind=tind)
+    except:
+        kappa_epar = None
+    
     # electron temperature
     Te = (0.5*P/Ne) * tnorm
 
@@ -113,6 +120,9 @@ def energy_flux(path, tind=-1):
     _, convect_ke = ke_convection(pos, Ne, Vi)
     _, convect_therm = thermal_convection(pos, P, Vi)
 
+    if kappa_epar is None:
+        conduction = zeros(len(flux_pos))
+    
     # Return results as a dictionary
     return {"position":flux_pos,
             "conduction":conduction,
@@ -121,22 +131,29 @@ def energy_flux(path, tind=-1):
 
     
 if __name__ == "__main__":
-
     import sys
-    import matplotlib
-    matplotlib.rcParams.update({'font.size': 20})
-    import matplotlib.pyplot as plt
+    import argparse
 
-
-    if len(sys.argv) != 2:
-        # Print usage information
-        print("Usage: {0} path\n e.g. {0} data".format(sys.argv[0]))
-        sys.exit(1)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("path", help="Directory containing the BOUT++ data")
+    parser.add_argument("-s", "--fontsize", type=int, default=14, help="Font size, default 14")
+    parser.add_argument('-x', "--nox", action='store_true', help="Don't use X display. Uses Agg backend.")
     
-    result = energy_flux(sys.argv[1])
+    args = parser.parse_args()
+    
+    import matplotlib
+    matplotlib.rcParams.update({'font.size': args.fontsize})
+    if args.nox:
+        matplotlib.use('Agg')
+
+    path = args.path
+        
+    import matplotlib.pyplot as plt
+        
+    result = energy_flux(path)
 
     pos = result["position"]
-    
+
     plt.plot(pos, result["conduction"], label="Conduction")
     
     plt.plot(pos, result["convection_ke"], label="Kinetic convection")
@@ -148,7 +165,12 @@ if __name__ == "__main__":
     plt.ylabel(r"Heat flux [W/m$^2$]")
     plt.legend(loc="best")
 
-    plt.savefig("energy-flux.pdf")
-    plt.savefig("energy-flux.png")
+    plt.savefig(os.path.join(path, "energy-flux.pdf"))
+    plt.savefig(os.path.join(path, "energy-flux.png"))
+    
+    print("Saved figure as " + os.path.join(path, "energy-flux.pdf"))
+
+    if args.nox:
+        sys.exit(0)
     
     plt.show()
