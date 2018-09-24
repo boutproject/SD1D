@@ -196,7 +196,7 @@ BoutReal HydrogenRadiatedPower::excitation(BoutReal Te) {
 
 
 BoutReal UpdatedRadiatedPower::power(BoutReal Te, BoutReal ne, BoutReal ni) {
-  
+  throw BoutException("UpdatedRadiatedPower::power not implemented");
 }
 
 // Collision rate coefficient <sigma*v> [m3/s]
