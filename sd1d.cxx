@@ -243,7 +243,9 @@ protected:
       impurity = new ImpuritySpecies(impurity_species);
     } else {
       // Use carbon radiation for the impurity
-      rad = new HutchinsonCarbonRadiation();
+
+      reactions["c_hutchinson"] =
+          Factory<Reaction>::getInstance().create("c_hutchinson");
     }
 
     // Add extra quantities to be saved
@@ -368,6 +370,12 @@ protected:
     }
     setSplitOperator(split_operator);
 
+    output << "\n-----------------------\nAvailable reactions: \n";
+    for (auto i :  Factory<Reaction>::getInstance().listAvailable()) {
+      output << "\t" << i << "\n";
+    }
+    output << "-------------------------\n";
+    
     return 0;
   }
 
@@ -393,6 +401,10 @@ protected:
 
     Field3D Te = 0.5 * P / Ne; // Assuming Te = Ti
 
+    // Set electron species properties
+    species["e"].T = Te;
+    species["e"].N = Ne;
+    
     Field3D Nnlim;
     Field3D Tn;
     if (atomic) {
@@ -786,9 +798,11 @@ protected:
       // Atomic physics
       TRACE("Atomic");
 
+      Rzrad = 0.0;
+      
       if (fimp > 0.0) {
         // Impurity radiation
-
+        
         if (impurity_adas) {
           Rzrad.allocate();
           for (auto &i : Rzrad) {
@@ -799,13 +813,26 @@ protected:
                 fimp * Ne[i] * Nnorm, // impurity density [m^-3]
                 Nn[i] * Nnorm);       // Neutral density [m^-3]
           }
+          Rzrad /= SI::qe * Tnorm * Nnorm * Omega_ci; // Normalise
         } else {
-          Rzrad = rad->power(Te * Tnorm, Ne * Nnorm,
-                             Ne * (Nnorm * fimp)); // J / m^3 / s
+          // Fixed fraction carbon
+          species["c"].N = fimp * Ne;
         }
-        Rzrad /= SI::qe * Tnorm * Nnorm * Omega_ci; // Normalise
       } // else Rzrad = 0.0 set in init()
 
+      // Power normalisation factor
+      BoutReal PowerNorm = SI::qe * Tnorm * Nnorm * Omega_ci;
+      
+      // Calculate reactions
+      for (auto const &r : reactions) {
+        TRACE("Reaction %s", r.first.c_str());
+        
+        r.second->updateSpecies(species, Tnorm, Nnorm, Cs0);
+        SourceMap sources = r.second->energySources();
+        
+        Rzrad -= sources.at("e") / PowerNorm;
+      }
+      
       E = 0.0; // Energy transfer to neutrals
 
       // Lower floor on Nn for atomic rates
@@ -1688,7 +1715,6 @@ private:
   bool impurity_adas;        // True if using ImpuritySpecies, false if using
                              // RadiatedPower
   ImpuritySpecies *impurity; // Atomicpp impurity
-  RadiatedPower *rad;        // Impurity atomic rates
 
   BoutReal Eionize; // Ionisation energy loss
 

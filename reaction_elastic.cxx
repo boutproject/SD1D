@@ -1,0 +1,107 @@
+/////////////////////////////////////////////////////////
+// Ion-neutral elastic scattering
+//
+// Post "A Review of Recent Developments in Atomic Processes for
+// Divertors and Edge Plasmas" PSI review paper
+//       https://arxiv.org/pdf/plasm-ph/9506003.pdf
+// Relative velocity of two particles in a gas
+// is sqrt(8kT/pi mu) where mu = m_A*m_B/(m_A+m_B)
+// here ions and neutrals have same mass,
+// and the ion temperature is used
+
+#include "reaction.hxx"
+#include "bout/mesh.hxx"
+#include "bout/constants.hxx"
+
+struct InterpCell {
+  InterpCell(const Field3D &f, const DataIterator &i) {
+    c = f[i];
+    l = 0.5 * (f[i.ym()] + c);
+    r = 0.5 * (c + f[i.yp()]);
+  }
+  InterpCell(const Field2D &f, const DataIterator &i) {
+    c = f[i];
+    l = 0.5 * (f[i.ym()] + c);
+    r = 0.5 * (c + f[i.yp()]);
+  }
+
+  BoutReal l, c, r;
+};
+
+class ReactionElasticScattering : public Reaction {
+public:
+  void updateSpecies(const SpeciesMap &species, BoutReal Tnorm, BoutReal Nnorm,
+                     BoutReal Cs0) {
+
+    TRACE("ReactionElasticScattering::updateSpecies");
+
+    // Plasma ions
+    Field3D Ti = species.at("i").T;
+    Field3D Ni = species.at("i").N;
+    Field3D Vi = species.at("i").V;
+
+    // Neutral atoms
+    Field3D Tn = species.at("n").T;
+    Field3D Nn = species.at("n").N;
+    Field3D Vn = species.at("n").V;
+
+    Coordinates *coord = mesh->coordinates();
+
+    Fel.allocate();
+    Eel.allocate();
+
+    for (auto i : Fel.region(RGN_NOBNDRY)) {
+      auto cell_Ti = InterpCell(Ti, i);
+      auto cell_Ni = InterpCell(Ni, i);
+      auto cell_Vi = InterpCell(Vi, i);
+      
+      auto cell_Tn = InterpCell(Tn, i);
+      auto cell_Nn = InterpCell(Nn, i);
+      auto cell_Vn = InterpCell(Vn, i);
+      
+      // Jacobian (Cross-sectional area)
+      auto cell_J = InterpCell(coord->J, i);
+      
+      // Rates (normalised)
+      BoutReal R_el_L =
+          a0 * cell_Ni.l * cell_Nn.l * Cs0 * sqrt((16. / PI) * cell_Ti.l) * Nnorm / Omega_ci;
+      BoutReal R_el_C =
+          a0 * cell_Ni.c * cell_Nn.c * Cs0 * sqrt((16. / PI) * cell_Ti.c) * Nnorm / Omega_ci;
+      BoutReal R_el_R =
+          a0 * cell_Ni.r * cell_Nn.r * Cs0 * sqrt((16. / PI) * cell_Ti.r) * Nnorm / Omega_ci;
+
+      // Elastic transfer of momentum
+      Fel[i] =
+          (cell_J.l * (cell_Vi.l - cell_Vn.l) * R_el_L
+           + 4. * cell_J.c * (cell_Vi.c - cell_Vn.c) * R_el_C
+           + cell_J.r * (cell_Vi.r - cell_Vn.r) * R_el_R) /
+        (6. * cell_J.c);
+
+      // Elastic transfer of thermal energy
+      Eel[i] =
+        (3. / 2) *
+        (cell_J.l * (cell_Ti.l - cell_Tn.l) * R_el_L
+         + 4. * cell_J.c * (cell_Ti.l - cell_Tn.l) * R_el_C
+         + cell_J.r * (cell_Ti.r - cell_Tn.r) * R_el_R) /
+        (6. * cell_J.c);
+    }
+  }
+  
+  SourceMap momentumSources() {
+    return {{"i", -Fel}, // Deuterium (plasma ions)
+            {"n", Fel}}; // Neutral atoms
+  }
+  SourceMap energySources() {
+    return {{"d", -Eel}, // Deuterium (plasma ions)
+            {"n", Eel}}; // Neutral atoms
+  }
+
+private:
+  BoutReal a0 = 3e-19; // Effective cross-section [m^2]
+
+  Field3D Fel, Eel;
+};
+
+namespace {
+  RegisterInFactory<Reaction, ReactionElasticScattering> register_el("elastic");
+}

@@ -1,3 +1,12 @@
+///
+/// The following labels are used for common species:
+///
+///   e    Electrons
+///   i    Ions (main species; Deuterium)
+///   n    Neutral atoms (main species; Deuterium)
+///   c    Carbon
+///
+
 #ifndef __SPECIES_HXX__
 #define __SPECIES_HXX__
 
