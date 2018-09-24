@@ -45,6 +45,8 @@
 #include "div_ops.hxx"
 #include "loadmetric.hxx"
 #include "radiation.hxx"
+#include "species.hxx"
+#include "reaction.hxx"
 
 // OpenADAS interface Atomicpp by T.Body
 #include "atomicpp/ImpuritySpecies.hxx"
@@ -210,6 +212,7 @@ protected:
     solver->add(P, "P");
 
     if (atomic) {
+      
       solver->add(Nn, "Nn");
       if (evolve_nvn) {
         solver->add(NVn, "NVn");
@@ -1625,6 +1628,8 @@ private:
   bool evolve_nvn; // Evolve neutral momentum?
   bool evolve_pn;  // Evolve neutral pressure?
 
+  SpeciesMap species; // Map of species, indexed by strings
+  
   /////////////////////////////////////////////////////////////////
   // Diffusion and viscosity coefficients
 
@@ -1689,6 +1694,8 @@ private:
 
   bool neutral_f_pn; // When not evolving NVn, use F = Grad_par(Pn)
 
+  ReactionMap reactions; // Map of reactions, indexed by strings
+  
   ///////////////////////////////////////////////////////////////
   // Sheath boundary
 

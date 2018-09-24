@@ -3,8 +3,9 @@
 #ifndef __RADIATION_H__
 #define __RADIATION_H__
 
-#include <field3d.hxx>
-#include <bout_types.hxx>
+#include "field3d.hxx"
+#include "bout_types.hxx"
+#include "bout/generic_factory.hxx"
 
 #include <vector>
 #include <cmath>
@@ -82,31 +83,6 @@ class HutchinsonCarbonRadiation : public RadiatedPower {
   }
 };
 
-/*
-class PostJensen : public RadiatedPower {
-public:
-  BoutReal power(BoutReal Te, BoutReal ne, BoutReal ni) {
-    if( (Te < Tmin) || (Te > Tmax) )
-      return 0.0;
-    
-    return 0.0;
-  }
-protected:
-  BoutReal Tmin, Tmax;
-  BoutReal A[6];
-  
-  struct PJ_Data {
-    const char* label; // Short name
-    const char* name;  // Long name
-    BoutReal Tmin, Tmax;
-    BoutReal data[6];
-  };
-  
-  static PJ_Data power_data[] = {
-    {"C", "Carbon"},
-    {0}
-  };
-};
-*/
+
 
 #endif // __RADIATION_H__
