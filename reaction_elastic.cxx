@@ -9,29 +9,20 @@
 // here ions and neutrals have same mass,
 // and the ion temperature is used
 
-#include "reaction.hxx"
-#include "bout/mesh.hxx"
 #include "bout/constants.hxx"
+#include "bout/mesh.hxx"
+#include "globals.hxx"
+#include "reaction.hxx"
+#include "unused.hxx"
 
-struct InterpCell {
-  InterpCell(const Field3D &f, const DataIterator &i) {
-    c = f[i];
-    l = 0.5 * (f[i.ym()] + c);
-    r = 0.5 * (c + f[i.yp()]);
-  }
-  InterpCell(const Field2D &f, const DataIterator &i) {
-    c = f[i];
-    l = 0.5 * (f[i.ym()] + c);
-    r = 0.5 * (c + f[i.yp()]);
-  }
-
-  BoutReal l, c, r;
-};
+#include "output.hxx"
 
 class ReactionElasticScattering : public Reaction {
 public:
-  void updateSpecies(const SpeciesMap &species, BoutReal Tnorm, BoutReal Nnorm,
-                     BoutReal Cs0) {
+  ReactionElasticScattering() { SAVE_REPEAT2(Fel, Eel); }
+
+  void updateSpecies(const SpeciesMap &species, BoutReal UNUSED(Tnorm),
+                     BoutReal Nnorm, BoutReal Cs0, BoutReal Omega_ci) {
 
     TRACE("ReactionElasticScattering::updateSpecies");
 
@@ -51,50 +42,51 @@ public:
     Eel.allocate();
 
     for (auto i : Fel.region(RGN_NOBNDRY)) {
-      auto cell_Ti = InterpCell(Ti, i);
-      auto cell_Ni = InterpCell(Ni, i);
-      auto cell_Vi = InterpCell(Vi, i);
-      
-      auto cell_Tn = InterpCell(Tn, i);
-      auto cell_Nn = InterpCell(Nn, i);
-      auto cell_Vn = InterpCell(Vn, i);
-      
+
+      InterpCell cell_Ti(Ti, i);
+      InterpCell cell_Ni(Ni, i);
+      InterpCell cell_Vi(Vi, i);
+
+      InterpCell cell_Tn(Tn, i);
+      InterpCell cell_Nn(Nn, i);
+      InterpCell cell_Vn(Vn, i);
+
       // Jacobian (Cross-sectional area)
-      auto cell_J = InterpCell(coord->J, i);
-      
+      InterpCell cell_J(coord->J, i);
+
       // Rates (normalised)
-      BoutReal R_el_L =
-          a0 * cell_Ni.l * cell_Nn.l * Cs0 * sqrt((16. / PI) * cell_Ti.l) * Nnorm / Omega_ci;
-      BoutReal R_el_C =
-          a0 * cell_Ni.c * cell_Nn.c * Cs0 * sqrt((16. / PI) * cell_Ti.c) * Nnorm / Omega_ci;
-      BoutReal R_el_R =
-          a0 * cell_Ni.r * cell_Nn.r * Cs0 * sqrt((16. / PI) * cell_Ti.r) * Nnorm / Omega_ci;
+      BoutReal R_el_L = a0 * cell_Ni.l * cell_Nn.l * Cs0 *
+                        sqrt((16. / PI) * cell_Ti.l) * Nnorm / Omega_ci;
+      BoutReal R_el_C = a0 * cell_Ni.c * cell_Nn.c * Cs0 *
+                        sqrt((16. / PI) * cell_Ti.c) * Nnorm / Omega_ci;
+      BoutReal R_el_R = a0 * cell_Ni.r * cell_Nn.r * Cs0 *
+                        sqrt((16. / PI) * cell_Ti.r) * Nnorm / Omega_ci;
 
       // Elastic transfer of momentum
-      Fel[i] =
-          (cell_J.l * (cell_Vi.l - cell_Vn.l) * R_el_L
-           + 4. * cell_J.c * (cell_Vi.c - cell_Vn.c) * R_el_C
-           + cell_J.r * (cell_Vi.r - cell_Vn.r) * R_el_R) /
-        (6. * cell_J.c);
+      Fel[i] = (cell_J.l * (cell_Vi.l - cell_Vn.l) * R_el_L +
+                4. * cell_J.c * (cell_Vi.c - cell_Vn.c) * R_el_C +
+                cell_J.r * (cell_Vi.r - cell_Vn.r) * R_el_R) /
+               (6. * cell_J.c);
 
       // Elastic transfer of thermal energy
-      Eel[i] =
-        (3. / 2) *
-        (cell_J.l * (cell_Ti.l - cell_Tn.l) * R_el_L
-         + 4. * cell_J.c * (cell_Ti.l - cell_Tn.l) * R_el_C
-         + cell_J.r * (cell_Ti.r - cell_Tn.r) * R_el_R) /
-        (6. * cell_J.c);
+      Eel[i] = (3. / 2) *
+               (cell_J.l * (cell_Ti.l - cell_Tn.l) * R_el_L +
+                4. * cell_J.c * (cell_Ti.l - cell_Tn.l) * R_el_C +
+                cell_J.r * (cell_Ti.r - cell_Tn.r) * R_el_R) /
+               (6. * cell_J.c);
     }
   }
-  
+
   SourceMap momentumSources() {
     return {{"i", -Fel}, // Deuterium (plasma ions)
             {"n", Fel}}; // Neutral atoms
   }
   SourceMap energySources() {
-    return {{"d", -Eel}, // Deuterium (plasma ions)
+    return {{"i", -Eel}, // Deuterium (plasma ions)
             {"n", Eel}}; // Neutral atoms
   }
+
+  std::string str() const { return "Ion-neutral elastic scattering"; }
 
 private:
   BoutReal a0 = 3e-19; // Effective cross-section [m^2]
@@ -103,5 +95,5 @@ private:
 };
 
 namespace {
-  RegisterInFactory<Reaction, ReactionElasticScattering> register_el("elastic");
+RegisterInFactory<Reaction, ReactionElasticScattering> register_el("elastic");
 }

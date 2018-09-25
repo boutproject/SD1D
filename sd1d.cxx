@@ -41,6 +41,7 @@
 #include <derivs.hxx>
 #include <field_factory.hxx>
 #include <invert_parderiv.hxx>
+#include "unused.hxx"
 
 #include "div_ops.hxx"
 #include "loadmetric.hxx"
@@ -105,10 +106,21 @@ protected:
 
     OPTION(opt, recombination, true);
     OPTION(opt, ionisation, true);
-    OPTION(opt, elastic_scattering,
-           false);                  // Include ion-neutral elastic scattering?
+    
     OPTION(opt, excitation, false); // Include electron impact excitation?
 
+    if (atomic) {
+      // Include atomic rates
+      
+      bool elastic_scattering; // Ion-neutral elastic scattering
+      OPTION(opt, elastic_scattering, false);
+      if (elastic_scattering) {
+        // Add elastic scattering to the reactions set
+        reactions.push_back(Factory<Reaction>::getInstance().create("elastic"));
+      }
+    }
+
+    
     OPTION(opt, gamma_sound, 5. / 3); // Ratio of specific heats
     OPTION(opt, bndry_flux_fix, false);
 
@@ -243,9 +255,10 @@ protected:
       impurity = new ImpuritySpecies(impurity_species);
     } else {
       // Use carbon radiation for the impurity
-
-      reactions["c_hutchinson"] =
-          Factory<Reaction>::getInstance().create("c_hutchinson");
+      if (fimp > 0.0) {
+        reactions.push_back(
+            Factory<Reaction>::getInstance().create("c_hutchinson"));
+      }
     }
 
     // Add extra quantities to be saved
@@ -270,10 +283,6 @@ protected:
         if (charge_exchange_escape) {
           SAVE_REPEAT2(Dcx, Dcx_T); // Save particle loss of CX neutrals
         }
-
-        if (elastic_scattering) {
-          SAVE_REPEAT2(Fel, Eel); // Elastic collision transfer channels
-        }
         if (excitation) {
           SAVE_REPEAT(Rex); // Electron-neutral excitation
         }
@@ -297,7 +306,6 @@ protected:
     Frec = 0.0;
     Fiz = 0.0;
     Fcx = 0.0;
-    Fel = 0.0;
     F = 0.0;
     Rrec = 0.0;
     Riz = 0.0;
@@ -307,7 +315,6 @@ protected:
     Erec = 0.0;
     Eiz = 0.0;
     Ecx = 0.0;
-    Eel = 0.0;
     E = 0.0;
     Dcx = 0.0;
     Dcx_T = 0.0;
@@ -374,6 +381,14 @@ protected:
     for (auto i :  Factory<Reaction>::getInstance().listAvailable()) {
       output << "\t" << i << "\n";
     }
+    output << "-------------------------\nEnabled reactions: \n";
+    if (reactions.empty()) {
+      output << "No reactions\n";
+    } else {
+      for (const auto &r : reactions) {
+        output << "\t" << r->str() << "\n";
+      }
+    }
     output << "-------------------------\n";
     
     return 0;
@@ -404,9 +419,22 @@ protected:
     // Set electron species properties
     species["e"].T = Te;
     species["e"].N = Ne;
-    
+    species["e"].V = Vi;
+
+    // Ion species
+    species["i"].T = Te;
+    species["i"].N = Ne;
+    species["i"].V = Vi;
+
+    for (const auto &label : {"e", "i"}) {
+      ddt(species[label].N) = 0.0;  // Particle sources
+      ddt(species[label].NV) = 0.0; // Momentum sources
+      ddt(species[label].P) = 0.0;  // Energy sources
+    }
+
     Field3D Nnlim;
     Field3D Tn;
+    
     if (atomic) {
       // Includes atomic processes, neutral gas
       mesh->communicate(Nn);
@@ -435,6 +463,15 @@ protected:
         Pn = Tn * floor(Nn, 0.0);
         Tn = floor(Tn, tn_floor / Tnorm); // Minimum of tn_floor
       }
+
+      // Neutral atom species
+      species["n"].T = Tn;
+      species["n"].N = Nn;
+      species["n"].V = Vn;
+
+      ddt(species["n"].N) = 0.0;  // Particle sources
+      ddt(species["n"].NV) = 0.0; // Momentum sources
+      ddt(species["n"].P) = 0.0;  // Energy sources
     }
 
     if (update_coefficients) {
@@ -821,17 +858,47 @@ protected:
       } // else Rzrad = 0.0 set in init()
 
       // Power normalisation factor
-      BoutReal PowerNorm = SI::qe * Tnorm * Nnorm * Omega_ci;
+      BoutReal PowerNorm = 1./(SI::qe * Tnorm * Nnorm * Omega_ci);
       
       // Calculate reactions
-      for (auto const &r : reactions) {
-        TRACE("Reaction %s", r.first.c_str());
+      for (auto &r : reactions) {
+        TRACE("Reaction %s", r->str().c_str());
         
-        r.second->updateSpecies(species, Tnorm, Nnorm, Cs0);
-        SourceMap sources = r.second->energySources();
+        r->updateSpecies(species, Tnorm, Nnorm, Cs0, Omega_ci);
+
+        // Particle (density) sources
+        for (const auto &s : r->densitySources()) {
+          // s.first contains the species label (std::string)
+          // s.second is a Field3D with the source in SI units (m^-3)
+          try {
+            ddt(species.at(s.first).N) += s.second / Nnorm;
+          } catch (const std::out_of_range &e) {
+            throw BoutException("Unhandled density source for species '%s'", s.first.c_str());
+          }
+        }
         
-        Rzrad -= sources.at("e") / PowerNorm;
+        // Momentum sources
+        for (const auto &s : r->momentumSources()) {
+          // Note: Mass should be accounted for somewhere
+          try {
+            ddt(species.at(s.first).NV) += s.second / (Nnorm * Cs0);
+          } catch (const std::out_of_range &e) {
+            throw BoutException("Unhandled momentum source for species '%s'", s.first.c_str());
+          }
+        }   
+        
+        // Energy sources
+        for (const auto &s : r->energySources()) {
+          // Add power to pressure equation, with 2/3 factor and normalisation
+          try {
+            ddt(species.at(s.first).P) += (2./3) * s.second * PowerNorm;
+          } catch (const std::out_of_range &e) {
+            throw BoutException("Unhandled energy source for species '%s'", s.first.c_str());
+          }
+        }
       }
+
+      // Add 
       
       E = 0.0; // Energy transfer to neutrals
 
@@ -983,42 +1050,6 @@ protected:
                   (6. * J_C);
             }
 
-            if (elastic_scattering) {
-              /////////////////////////////////////////////////////////
-              // Ion-neutral elastic scattering
-              //
-              // Post "A Review of Recent Developments in Atomic Processes for
-              // Divertors and Edge Plasmas" PSI review paper
-              //       https://arxiv.org/pdf/plasm-ph/9506003.pdf
-              // Relative velocity of two particles in a gas
-              // is sqrt(8kT/pi mu) where mu = m_A*m_B/(m_A+m_B)
-              // here ions and neutrals have same mass,
-              // and the ion temperature is used
-
-              BoutReal a0 = 3e-19; // Effective cross-section [m^2]
-
-              // Rates (normalised)
-              BoutReal R_el_L = a0 * Ne_L * Nn_L * Cs0 *
-                                sqrt((16. / PI) * Te_L) * Nnorm / Omega_ci;
-              BoutReal R_el_C = a0 * Ne_C * Nn_C * Cs0 *
-                                sqrt((16. / PI) * Te_C) * Nnorm / Omega_ci;
-              BoutReal R_el_R = a0 * Ne_R * Nn_R * Cs0 *
-                                sqrt((16. / PI) * Te_R) * Nnorm / Omega_ci;
-
-              // Elastic transfer of momentum
-              Fel(i, j, k) = (J_L * (Vi_L - Vn_L) * R_el_L +
-                              4. * J_C * (Vi_C - Vn_C) * R_el_C +
-                              J_R * (Vi_R - Vn_R) * R_el_R) /
-                             (6. * J_C);
-
-              // Elastic transfer of thermal energy
-              Eel(i, j, k) = (3. / 2) *
-                             (J_L * (Te_L - Tn_L) * R_el_L +
-                              4. * J_C * (Te_C - Tn_C) * R_el_C +
-                              J_R * (Te_R - Tn_R) * R_el_R) /
-                             (6. * J_C);
-            }
-
             if (excitation) {
               /////////////////////////////////////////////////////////
               // Electron-neutral excitation
@@ -1048,14 +1079,12 @@ protected:
             // Total energy transferred to neutrals
             E(i, j, k) = Ecx(i, j, k)    // Charge exchange
                          + Erec(i, j, k) // Recombination
-                         + Eiz(i, j, k)  // ionisation
-                         + Eel(i, j, k); // Elastic collisions
+              + Eiz(i, j, k);  // ionisation
 
             // Total friction
             F(i, j, k) = Frec(i, j, k)   // Recombination
-                         + Fiz(i, j, k)  // Ionisation
-                         + Fcx(i, j, k)  // Charge exchange
-                         + Fel(i, j, k); // Elastic collisions
+              + Fiz(i, j, k)  // Ionisation
+              + Fcx(i, j, k);  // Charge exchange
 
             // Total sink of plasma, source of neutrals
             S(i, j, k) = Srec(i, j, k) + Siz(i, j, k);
@@ -1488,6 +1517,27 @@ protected:
         }
       }
     }
+
+    // Add reaction sources
+    if (atomic && rhs_explicit) {
+      // Plasma equations sum electron and ion contributions
+      try {
+        ddt(Ne)  += ddt(species.at("e").N);
+        ddt(NVi) += ddt(species.at("i").NV);
+        ddt(P)   += ddt(species.at("e").P) + ddt(species.at("i").P);
+        
+        ddt(Nn) += ddt(species.at("n").N);
+        if (evolve_nvn) {
+          ddt(NVn) += ddt(species.at("n").NV);
+        }
+        if (evolve_pn) {
+          ddt(P) += ddt(species.at("n").P);
+        }
+      } catch (const std::out_of_range &e) {
+        throw BoutException("Failed while adding sources");
+      }
+    }
+    
     return 0;
   }
 
@@ -1499,7 +1549,7 @@ protected:
    * Related to timestep
    * @param[in] delta   Not used here
    */
-  int precon(BoutReal t, BoutReal gamma, BoutReal delta) {
+  int precon(BoutReal UNUSED(t), BoutReal gamma, BoutReal UNUSED(delta)) {
 
     static InvertPar *inv = NULL;
     if (!inv) {
@@ -1558,7 +1608,7 @@ protected:
   /*!
    * Monitor output solutions
    */
-  int outputMonitor(BoutReal simtime, int iter, int NOUT) {
+  int outputMonitor(BoutReal UNUSED(simtime), int UNUSED(iter), int UNUSED(NOUT)) {
 
     static BoutReal maxinvdt_alltime = 0.0; // Max 1/dt over all output times
 
@@ -1681,7 +1731,6 @@ private:
   bool recombination; // Recombination plasma particle sink
   bool ionisation; // Ionisation plasma particle source. Doesn't affect neutral
                    // diffusion
-  bool elastic_scattering; // Ion-neutral elastic scattering
   bool excitation;         // Include electron-neutral excitation
 
   BoutReal nloss; // Neutral loss rate (1/timescale)
@@ -1695,13 +1744,12 @@ private:
 
   Field3D Srec,
       Siz; // Plasma particle sinks due to recombination and ionisation
-  Field3D Frec, Fiz, Fcx,
-      Fel; // Plasma momentum sinks due to recombination, ionisation, charge
-           // exchange and elastic collisions
+  Field3D Frec, Fiz, Fcx; // Plasma momentum sinks due to recombination, ionisation, charge
+           // exchange
   Field3D Rrec, Riz, Rzrad,
       Rex; // Plasma power sinks due to recombination, ionisation, impurity
            // radiation, and hydrogen excitation
-  Field3D Erec, Eiz, Ecx, Eel; // Transfer of power from plasma to neutrals
+  Field3D Erec, Eiz, Ecx; // Transfer of power from plasma to neutrals
   Field3D Dcx;   // Redistribution of fast CX neutrals -> neutral loss
   Field3D Dcx_T; // Temperature of the fast CX neutrals
 
@@ -1720,7 +1768,7 @@ private:
 
   bool neutral_f_pn; // When not evolving NVn, use F = Grad_par(Pn)
 
-  ReactionMap reactions; // Map of reactions, indexed by strings
+  std::vector<Reaction*> reactions; // Reaction set to include
   
   ///////////////////////////////////////////////////////////////
   // Sheath boundary

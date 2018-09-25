@@ -1,22 +1,34 @@
 #include "reaction.hxx"
 #include "utils.hxx"
+#include "unused.hxx"
 
 /// Carbon in coronal equilibrium
 /// From I.H.Hutchinson Nucl. Fusion 34 (10) 1337 - 1348 (1994)
 class ReactionHutchinsonCarbon : public Reaction {
 public:
   void updateSpecies(const SpeciesMap &species, BoutReal Tn, BoutReal Nn,
-                     BoutReal Vn) {
+                     BoutReal UNUSED(Vn), BoutReal UNUSED(Freq)) {
+    TRACE("ReactionHutchinsonCarbon::updateSpecies");
+    
     // Electron temperature and density
-    Te = species.at("e").T;
-    ne = species.at("e").N;
+    try {
+      Te = species.at("e").T;
+      ne = species.at("e").N;
+    } catch (const std::out_of_range &e) {
+      throw BoutException("No 'e' species");
+    }
+    
     // Carbon density
-    ni = species.at("c").N;
+    try {
+      ni = species.at("c").N;
+    } catch (const std::out_of_range &e) {
+      throw BoutException("No 'c' species");
+    }
 
     // Store normalisations
     Tnorm = Tn;
     Nnorm = Nn;
-    // Velocity normalisation not needed
+    // Velocity and frequency normalisation not needed
   }
 
   SourceMap energySources() {
@@ -29,6 +41,8 @@ public:
     return {{"e", -radiation}};
   }
 
+  std::string str() const { return "Coronal carbon radiation (Hutchinson model)"; }
+  
 private:
   BoutReal Nnorm, Tnorm; ///< Density, temperature normalisations
   Field3D Te, ne, ni;
