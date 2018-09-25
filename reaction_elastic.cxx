@@ -43,37 +43,26 @@ public:
 
     for (auto i : Fel.region(RGN_NOBNDRY)) {
 
-      InterpCell cell_Ti(Ti, i);
-      InterpCell cell_Ni(Ni, i);
-      InterpCell cell_Vi(Vi, i);
+      // Interpolate values onto quadrature points
+      QuadValue _Ti(Ti, i), _Ni(Ni, i), _Vi(Vi, i); 
+      QuadValue _Tn(Tn, i), _Nn(Nn, i), _Vn(Vn, i);
+      
+      QuadRule QR(coord, i);  // Quadrature rule weights
 
-      InterpCell cell_Tn(Tn, i);
-      InterpCell cell_Nn(Nn, i);
-      InterpCell cell_Vn(Vn, i);
+      Fel[i] = 0.0;
+      Eel[i] = 0.0;
+      for (int j : QR.indices) { // Evaluate at each quadrature point
 
-      // Jacobian (Cross-sectional area)
-      InterpCell cell_J(coord->J, i);
+        // Rate (normalised)
+        BoutReal R = a0 * _Ni[j] * _Nn[j] * Cs0 * sqrt((16. / PI) * _Ti[j]) *
+                     Nnorm / Omega_ci;
 
-      // Rates (normalised)
-      BoutReal R_el_L = a0 * cell_Ni.l * cell_Nn.l * Cs0 *
-                        sqrt((16. / PI) * cell_Ti.l) * Nnorm / Omega_ci;
-      BoutReal R_el_C = a0 * cell_Ni.c * cell_Nn.c * Cs0 *
-                        sqrt((16. / PI) * cell_Ti.c) * Nnorm / Omega_ci;
-      BoutReal R_el_R = a0 * cell_Ni.r * cell_Nn.r * Cs0 *
-                        sqrt((16. / PI) * cell_Ti.r) * Nnorm / Omega_ci;
+        // Elastic transfer of momentum
+        Fel[i] += QR[j] * (_Vi[j] - _Vn[j]) * R;
 
-      // Elastic transfer of momentum
-      Fel[i] = (cell_J.l * (cell_Vi.l - cell_Vn.l) * R_el_L +
-                4. * cell_J.c * (cell_Vi.c - cell_Vn.c) * R_el_C +
-                cell_J.r * (cell_Vi.r - cell_Vn.r) * R_el_R) /
-               (6. * cell_J.c);
-
-      // Elastic transfer of thermal energy
-      Eel[i] = (3. / 2) *
-               (cell_J.l * (cell_Ti.l - cell_Tn.l) * R_el_L +
-                4. * cell_J.c * (cell_Ti.l - cell_Tn.l) * R_el_C +
-                cell_J.r * (cell_Ti.r - cell_Tn.r) * R_el_R) /
-               (6. * cell_J.c);
+        // Elastic transfer of thermal energy
+        Eel[i] += (3. / 2) * QR[j] * (_Ti[j] - _Tn[j]) * R;
+      }
     }
   }
 
