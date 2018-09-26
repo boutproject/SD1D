@@ -12,6 +12,7 @@
 
 #include "species.hxx"
 #include "bout/coordinates.hxx"
+#include "macro_for_each.hxx"
 
 /// Map from string (species name) to volume source
 using SourceMap = std::map<std::string, Field3D>;
@@ -44,6 +45,9 @@ public:
   virtual std::string str() const { return "Unknown reaction"; }
 };
 
+//////////////////////////////////////////////////////////////////////////////
+// Tools for integrating reaction rates over cells
+
 /// Values to be used in a quadrature rule (Simpson's)
 struct QuadValue {
   QuadValue(const Field3D &f, const DataIterator &i) {
@@ -74,11 +78,63 @@ struct QuadRule {
     weights[2] = 0.5*(J[yp] + J[i]) / (6. * J[i]);
   }
   
-  BoutReal weights[3]; // c l r
+  std::array<BoutReal,3> weights; // c l r
 
-  BoutReal operator[](int index) const {return weights[index];}
-
-  int indices[3] = {0,1,2};
+  int size() { return weights.size(); }
+  BoutReal operator[](int index) const { return weights[index]; }
 };
+
+#define _QUADVALUE_DEFINE(var) \
+  for(QuadValue _qv_ ## var (var, _int_i); !_control_outer; )
+
+#define _BOUTREAL_DEFINE(var) \
+  for(BoutReal var = _qv_ ## var [_int_j]; !_control_inner; )
+
+/// Loop over cells in a region, and a set of quadrature points
+/// in those cells, to integrate one or more expressions. 
+///
+/// Example:
+///
+/// Field3D f = ..., g = ...; // Input fields
+///
+/// Field3D result = 0.0;
+/// INTEGRATE(i, result.region(RGN_NOBNDRY), // cell index
+///           mesh->coordinates(),   // Coordinates pointer
+///           weight,   // Quadrature weight variable 
+///           f, g) {   // Fields to interpolate to quadrature points
+///
+///   // This will be evaluated several times for each cell index i
+///   result[i] += weight * ( f + g ); // f and g here are BoutReal
+/// }
+/// 
+/// Introduces the following local variables which should not be used:
+///   _int_i, _int_j                  Index and loop counters
+///   _control_outer, _control_inner  Booleans to control loops
+///   _QR                             QuadRule object with weights
+/// In addition, for each input field a new variable with
+/// "_" prepended will be defined for the QuadValue object.
+///
+#define INTEGRATE(indx, region, coord, weight, ...)                     \
+  /* Iterate over region with internal index */                         \
+  for (auto _int_i : region)                                            \
+    /* Introduce outer loop control variable _control_outer */          \
+    if(bool _control_outer = false) ; else                              \
+      for (auto indx = _int_i; !_control_outer;)                        \
+        for ( QuadRule _QR(coord, _int_i); !_control_outer;)             \
+          /* Define QuadValue variables, interpolating */               \
+          MACRO_FOR_EACH(_QUADVALUE_DEFINE, __VA_ARGS__)                \
+            /* Loop over weights */                                     \
+            for (int _int_j = 0; !_control_outer; )                     \
+              /* Setting _control_outer=true causes enclosing loops to exit */ \
+              for (_control_outer = true; _int_j < _QR.size(); ++_int_j) \
+                /* Define BoutReal variables matching original var names */ \
+                if (bool _control_inner = false) ; else                 \
+                  for ( BoutReal weight = _QR[_int_j]; !_control_inner; ) \
+                    MACRO_FOR_EACH(_BOUTREAL_DEFINE, __VA_ARGS__)       \
+                    /* Innermost expression. Run once, setting */       \
+                    /* _control_inner = true so enclosing loops exit */ \
+                    if (bool _int_n = false) ; else                     \
+                      for (_control_inner = true; !_int_n; _int_n = true)
+
 
 #endif // __REACTION_HXX__

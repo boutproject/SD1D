@@ -17,6 +17,9 @@
 
 #include "output.hxx"
 
+            
+
+
 class ReactionElasticScattering : public Reaction {
 public:
   ReactionElasticScattering() { SAVE_REPEAT2(Fel, Eel); }
@@ -38,31 +41,24 @@ public:
 
     Coordinates *coord = mesh->coordinates();
 
-    Fel.allocate();
-    Eel.allocate();
-
-    for (auto i : Fel.region(RGN_NOBNDRY)) {
-
-      // Interpolate values onto quadrature points
-      QuadValue _Ti(Ti, i), _Ni(Ni, i), _Vi(Vi, i); 
-      QuadValue _Tn(Tn, i), _Nn(Nn, i), _Vn(Vn, i);
+    Fel = 0.0;
+    Eel = 0.0;
+    
+    INTEGRATE(i,                        // Index variable
+              Fel.region(RGN_NOBNDRY),  // Index and region (input)
+              coord,                    // Coordinate system (input)
+              weight,                   // Quadrature weight variable
+              Ti, Ni, Vi, Tn, Nn, Vn) { // Field variables
       
-      QuadRule QR(coord, i);  // Quadrature rule weights
+      // Rate (normalised)
+      BoutReal R =
+          a0 * Ni * Nn * Cs0 * sqrt((16. / PI) * Ti) * Nnorm / Omega_ci;
 
-      Fel[i] = 0.0;
-      Eel[i] = 0.0;
-      for (int j : QR.indices) { // Evaluate at each quadrature point
+      // Elastic transfer of momentum
+      Fel[i] += weight * (Vi - Vn) * R;
 
-        // Rate (normalised)
-        BoutReal R = a0 * _Ni[j] * _Nn[j] * Cs0 * sqrt((16. / PI) * _Ti[j]) *
-                     Nnorm / Omega_ci;
-
-        // Elastic transfer of momentum
-        Fel[i] += QR[j] * (_Vi[j] - _Vn[j]) * R;
-
-        // Elastic transfer of thermal energy
-        Eel[i] += (3. / 2) * QR[j] * (_Ti[j] - _Tn[j]) * R;
-      }
+      // Elastic transfer of thermal energy
+      Eel[i] += weight * (3. / 2) * (Ti - Tn) * R;
     }
   }
 
