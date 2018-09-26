@@ -17,9 +17,6 @@
 
 #include "output.hxx"
 
-            
-
-
 class ReactionElasticScattering : public Reaction {
 public:
   ReactionElasticScattering() { SAVE_REPEAT2(Fel, Eel); }
@@ -30,25 +27,38 @@ public:
     TRACE("ReactionElasticScattering::updateSpecies");
 
     // Plasma ions
-    Field3D Ti = species.at("i").T;
-    Field3D Ni = species.at("i").N;
-    Field3D Vi = species.at("i").V;
+    Field3D Ti, Ni, Vi;
+    try {
+      const auto &ions = species.at("h+");
+      
+      Ti = ions.T;
+      Ni = ions.N;
+      Vi = ions.V;
+    } catch (const std::out_of_range &e) {
+      throw BoutException("No 'h+' species");
+    }
 
     // Neutral atoms
-    Field3D Tn = species.at("n").T;
-    Field3D Nn = species.at("n").N;
-    Field3D Vn = species.at("n").V;
-
+    Field3D Tn, Nn, Vn;
+    try {
+      const auto &atoms = species.at("h");
+      Tn = atoms.T;
+      Nn = atoms.N;
+      Vn = atoms.V;
+    } catch (const std::out_of_range &e) {
+      throw BoutException("No 'h' species");
+    }
+    
     Coordinates *coord = mesh->coordinates();
 
     Fel = 0.0;
     Eel = 0.0;
     
-    INTEGRATE(i,                        // Index variable
-              Fel.region(RGN_NOBNDRY),  // Index and region (input)
-              coord,                    // Coordinate system (input)
-              weight,                   // Quadrature weight variable
-              Ti, Ni, Vi, Tn, Nn, Vn) { // Field variables
+    CELL_AVERAGE(i,                        // Index variable
+                 Fel.region(RGN_NOBNDRY),  // Index and region (input)
+                 coord,                    // Coordinate system (input)
+                 weight,                   // Quadrature weight variable
+                 Ti, Ni, Vi, Tn, Nn, Vn) { // Field variables
       
       // Rate (normalised)
       BoutReal R =
@@ -63,12 +73,12 @@ public:
   }
 
   SourceMap momentumSources() {
-    return {{"i", -Fel}, // Deuterium (plasma ions)
-            {"n", Fel}}; // Neutral atoms
+    return {{"h+", -Fel}, // Deuterium (plasma ions)
+            {"h", Fel}}; // Neutral atoms
   }
   SourceMap energySources() {
-    return {{"i", -Eel}, // Deuterium (plasma ions)
-            {"n", Eel}}; // Neutral atoms
+    return {{"h+", -Eel}, // Deuterium (plasma ions)
+            {"h", Eel}}; // Neutral atoms
   }
 
   std::string str() const { return "Ion-neutral elastic scattering"; }

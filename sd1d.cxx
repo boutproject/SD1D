@@ -422,11 +422,11 @@ protected:
     species["e"].V = Vi;
 
     // Ion species
-    species["i"].T = Te;
-    species["i"].N = Ne;
-    species["i"].V = Vi;
+    species["h+"].T = Te;
+    species["h+"].N = Ne;
+    species["h+"].V = Vi;
 
-    for (const auto &label : {"e", "i"}) {
+    for (const auto &label : {"e", "h+"}) {
       ddt(species[label].N) = 0.0;  // Particle sources
       ddt(species[label].NV) = 0.0; // Momentum sources
       ddt(species[label].P) = 0.0;  // Energy sources
@@ -465,13 +465,13 @@ protected:
       }
 
       // Neutral atom species
-      species["n"].T = Tn;
-      species["n"].N = Nn;
-      species["n"].V = Vn;
+      species["h"].T = Tn;
+      species["h"].N = Nn;
+      species["h"].V = Vn;
 
-      ddt(species["n"].N) = 0.0;  // Particle sources
-      ddt(species["n"].NV) = 0.0; // Momentum sources
-      ddt(species["n"].P) = 0.0;  // Energy sources
+      ddt(species["h"].N) = 0.0;  // Particle sources
+      ddt(species["h"].NV) = 0.0; // Momentum sources
+      ddt(species["h"].P) = 0.0;  // Energy sources
     }
 
     if (update_coefficients) {
@@ -1523,15 +1523,15 @@ protected:
       // Plasma equations sum electron and ion contributions
       try {
         ddt(Ne)  += ddt(species.at("e").N);
-        ddt(NVi) += ddt(species.at("i").NV);
-        ddt(P)   += ddt(species.at("e").P) + ddt(species.at("i").P);
+        ddt(NVi) += ddt(species.at("h+").NV);
+        ddt(P)   += ddt(species.at("e").P) + ddt(species.at("h+").P);
         
-        ddt(Nn) += ddt(species.at("n").N);
+        ddt(Nn) += ddt(species.at("h").N);
         if (evolve_nvn) {
-          ddt(NVn) += ddt(species.at("n").NV);
+          ddt(NVn) += ddt(species.at("h").NV);
         }
         if (evolve_pn) {
-          ddt(P) += ddt(species.at("n").P);
+          ddt(P) += ddt(species.at("h").P);
         }
       } catch (const std::out_of_range &e) {
         throw BoutException("Failed while adding sources");

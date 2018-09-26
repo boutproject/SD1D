@@ -91,17 +91,18 @@ struct QuadRule {
   for(BoutReal var = _qv_ ## var [_int_j]; !_control_inner; )
 
 /// Loop over cells in a region, and a set of quadrature points
-/// in those cells, to integrate one or more expressions. 
+/// in those cells, to integrate one or more expressions.
+/// These weights sum to 1, resulting in volume averaged values.
 ///
 /// Example:
 ///
 /// Field3D f = ..., g = ...; // Input fields
 ///
 /// Field3D result = 0.0;
-/// INTEGRATE(i, result.region(RGN_NOBNDRY), // cell index
-///           mesh->coordinates(),   // Coordinates pointer
-///           weight,   // Quadrature weight variable 
-///           f, g) {   // Fields to interpolate to quadrature points
+/// CELL_AVERAGE(i, result.region(RGN_NOBNDRY), // cell index
+///              mesh->coordinates(),   // Coordinates pointer
+///              weight,   // Quadrature weight variable 
+///              f, g) {   // Fields to interpolate to quadrature points
 ///
 ///   // This will be evaluated several times for each cell index i
 ///   result[i] += weight * ( f + g ); // f and g here are BoutReal
@@ -114,13 +115,15 @@ struct QuadRule {
 /// In addition, for each input field a new variable with
 /// "_" prepended will be defined for the QuadValue object.
 ///
-#define INTEGRATE(indx, region, coord, weight, ...)                     \
+#define CELL_AVERAGE(indx, region, coord, weight, ...)                  \
   /* Iterate over region with internal index */                         \
   for (auto _int_i : region)                                            \
     /* Introduce outer loop control variable _control_outer */          \
+    /* The if(false);else pattern is used to avoid          */          \
+    /* accidentally capturing an 'else' after the macro     */          \
     if(bool _control_outer = false) ; else                              \
       for (auto indx = _int_i; !_control_outer;)                        \
-        for ( QuadRule _QR(coord, _int_i); !_control_outer;)             \
+        for ( QuadRule _QR(coord, _int_i); !_control_outer;)            \
           /* Define QuadValue variables, interpolating */               \
           MACRO_FOR_EACH(_QUADVALUE_DEFINE, __VA_ARGS__)                \
             /* Loop over weights */                                     \
@@ -131,10 +134,10 @@ struct QuadRule {
                 if (bool _control_inner = false) ; else                 \
                   for ( BoutReal weight = _QR[_int_j]; !_control_inner; ) \
                     MACRO_FOR_EACH(_BOUTREAL_DEFINE, __VA_ARGS__)       \
-                    /* Innermost expression. Run once, setting */       \
-                    /* _control_inner = true so enclosing loops exit */ \
-                    if (bool _int_n = false) ; else                     \
-                      for (_control_inner = true; !_int_n; _int_n = true)
+                      /* Innermost expression. Run once, setting */     \
+                      /* _control_inner=true so enclosing loops exit */ \
+                      /* Note: The single '=' is intentional here */    \
+                      if (!(_control_inner = true)) ; else              \
 
 
 #endif // __REACTION_HXX__
