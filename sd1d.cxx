@@ -77,7 +77,6 @@ protected:
     OPTION(opt, gaspuff, 0.0);        // Additional gas flux at target
     OPTION(opt, dneut, 1.0);          // Scale neutral gas diffusion
     OPTION(opt, nloss, 0.0);          // Neutral gas loss rate
-    OPTION(opt, Eionize, 30);         // Energy loss per ionisation (30eV)
     OPTION(opt, sheath_gamma, 6.5);   // Sheath heat transmission
     OPTION(opt, neutral_gamma, 0.25); // Neutral heat transmission
 
@@ -103,9 +102,6 @@ protected:
     OPTION(opt, charge_exchange, true);
     OPTION(opt, charge_exchange_escape, false);
     OPTION(opt, charge_exchange_return_fE, 1.0);
-
-    OPTION(opt, recombination, true);
-    OPTION(opt, ionisation, true);
     
     OPTION(opt, excitation, false); // Include electron impact excitation?
 
@@ -116,10 +112,22 @@ protected:
       OPTION(opt, elastic_scattering, false);
       if (elastic_scattering) {
         // Add elastic scattering to the reactions set
-        reactions.push_back(Factory<Reaction>::getInstance().create("elastic"));
+        reactions.push_back(ReactionFactory::getInstance().create("elastic", opt));
+      }
+      
+      bool recombination;
+      OPTION(opt, recombination, true);
+      if (recombination) {
+        reactions.push_back(ReactionFactory::getInstance().create("recombination", opt));
+      }
+      
+      // Ionisation plasma particle source. Doesn't affect neutral diffusion
+      bool ionisation; 
+      OPTION(opt, ionisation, true);
+      if (ionisation) {
+        reactions.push_back(ReactionFactory::getInstance().create("ionisation", opt));
       }
     }
-
     
     OPTION(opt, gamma_sound, 5. / 3); // Ratio of specific heats
     OPTION(opt, bndry_flux_fix, false);
@@ -257,7 +265,7 @@ protected:
       // Use carbon radiation for the impurity
       if (fimp > 0.0) {
         reactions.push_back(
-            Factory<Reaction>::getInstance().create("c_hutchinson"));
+            ReactionFactory::getInstance().create("c_hutchinson", opt));
       }
     }
 
@@ -276,10 +284,9 @@ protected:
     if (diagnose) {
       // Output extra variables
       if (atomic) {
-        SAVE_REPEAT2(Srec, Siz);        // Save particle sources
-        SAVE_REPEAT3(Frec, Fiz, Fcx);   // Save momentum sources
-        SAVE_REPEAT3(Rrec, Riz, Rzrad); // Save radiation sources
-        SAVE_REPEAT3(Erec, Eiz, Ecx);   // Save energy transfer
+        SAVE_REPEAT(Fcx);   // Save momentum sources
+        SAVE_REPEAT(Rzrad); // Save radiation sources
+        SAVE_REPEAT(Ecx);   // Save energy transfer
         if (charge_exchange_escape) {
           SAVE_REPEAT2(Dcx, Dcx_T); // Save particle loss of CX neutrals
         }
@@ -300,20 +307,12 @@ protected:
 
     kappa_epar = 0.0;
 
-    Srec = 0.0;
-    Siz = 0.0;
     S = 0.0;
-    Frec = 0.0;
-    Fiz = 0.0;
     Fcx = 0.0;
     F = 0.0;
-    Rrec = 0.0;
-    Riz = 0.0;
     Rzrad = 0.0;
     Rex = 0.0;
     R = 0.0;
-    Erec = 0.0;
-    Eiz = 0.0;
     Ecx = 0.0;
     E = 0.0;
     Dcx = 0.0;
@@ -378,7 +377,7 @@ protected:
     setSplitOperator(split_operator);
 
     output << "\n-----------------------\nAvailable reactions: \n";
-    for (auto i :  Factory<Reaction>::getInstance().listAvailable()) {
+    for (auto i :  ReactionFactory::getInstance().listAvailable()) {
       output << "\t" << i << "\n";
     }
     output << "-------------------------\nEnabled reactions: \n";
@@ -975,81 +974,7 @@ protected:
                                 J_R * Te_R * R_cx_R) /
                                (6. * J_C);
             }
-
-            ///////////////////////////////////////
-            // Recombination
-
-            if (recombination) {
-              BoutReal R_rc_L =
-                  hydrogen.recombination(Ne_L * Nnorm, Te_L * Tnorm) *
-                  SQ(Ne_L) * Nnorm / Omega_ci;
-              BoutReal R_rc_C =
-                  hydrogen.recombination(Ne_C * Nnorm, Te_C * Tnorm) *
-                  SQ(Ne_C) * Nnorm / Omega_ci;
-              BoutReal R_rc_R =
-                  hydrogen.recombination(Ne_R * Nnorm, Te_R * Tnorm) *
-                  SQ(Ne_R) * Nnorm / Omega_ci;
-
-              // Rrec is radiated energy, Erec is energy transferred to neutrals
-              // Factor of 1.09 so that recombination becomes an energy source
-              // at 5.25eV
-              Rrec(i, j, k) =
-                  (J_L * (1.09 * Te_L - 13.6 / Tnorm) * R_rc_L +
-                   4. * J_C * (1.09 * Te_C - 13.6 / Tnorm) * R_rc_C +
-                   J_R * (1.09 * Te_R - 13.6 / Tnorm) * R_rc_R) /
-                  (6. * J_C);
-
-              Erec(i, j, k) = (3. / 2) *
-                              (J_L * Te_L * R_rc_L + 4. * J_C * Te_C * R_rc_C +
-                               J_R * Te_R * R_rc_R) /
-                              (6. * J_C);
-
-              Frec(i, j, k) = (J_L * Vi_L * R_rc_L + 4. * J_C * Vi_C * R_rc_C +
-                               J_R * Vi_R * R_rc_R) /
-                              (6. * J_C);
-
-              Srec(i, j, k) =
-                  (J_L * R_rc_L + 4. * J_C * R_rc_C + J_R * R_rc_R) /
-                  (6. * J_C);
-            }
-
-            ///////////////////////////////////////
-            // Ionisation
-
-            if (ionisation) {
-              BoutReal R_iz_L = Ne_L * Nn_L *
-                                hydrogen.ionisation(Te_L * Tnorm) * Nnorm /
-                                Omega_ci;
-              BoutReal R_iz_C = Ne_C * Nn_C *
-                                hydrogen.ionisation(Te_C * Tnorm) * Nnorm /
-                                Omega_ci;
-              BoutReal R_iz_R = Ne_R * Nn_R *
-                                hydrogen.ionisation(Te_R * Tnorm) * Nnorm /
-                                Omega_ci;
-
-              Riz(i, j, k) =
-                  (Eionize / Tnorm) *
-                  ( // Energy loss per ionisation
-                      J_L * R_iz_L + 4. * J_C * R_iz_C + J_R * R_iz_R) /
-                  (6. * J_C);
-              Eiz(i, j, k) =
-                  -(3. / 2) *
-                  ( // Energy from neutral atom temperature
-                      J_L * Tn_L * R_iz_L + 4. * J_C * Tn_C * R_iz_C +
-                      J_R * Tn_R * R_iz_R) /
-                  (6. * J_C);
-
-              // Friction due to ionisation
-              Fiz(i, j, k) = -(J_L * Vn_L * R_iz_L + 4. * J_C * Vn_C * R_iz_C +
-                               J_R * Vn_R * R_iz_R) /
-                             (6. * J_C);
-
-              // Plasma sink due to ionisation (negative)
-              Siz(i, j, k) =
-                  -(J_L * R_iz_L + 4. * J_C * R_iz_C + J_R * R_iz_R) /
-                  (6. * J_C);
-            }
-
+            
             if (excitation) {
               /////////////////////////////////////////////////////////
               // Electron-neutral excitation
@@ -1072,22 +997,16 @@ protected:
 
             // Total energy lost from system
             R(i, j, k) = Rzrad(i, j, k)  // Radiated power from impurities
-                         + Rrec(i, j, k) // Recombination
-                         + Riz(i, j, k)  // Ionisation
                          + Rex(i, j, k); // Excitation
 
             // Total energy transferred to neutrals
-            E(i, j, k) = Ecx(i, j, k)    // Charge exchange
-                         + Erec(i, j, k) // Recombination
-              + Eiz(i, j, k);  // ionisation
+            E(i, j, k) = Ecx(i, j, k);    // Charge exchange
 
             // Total friction
-            F(i, j, k) = Frec(i, j, k)   // Recombination
-              + Fiz(i, j, k)  // Ionisation
-              + Fcx(i, j, k);  // Charge exchange
+            F(i, j, k) = Fcx(i, j, k);  // Charge exchange
 
             // Total sink of plasma, source of neutrals
-            S(i, j, k) = Srec(i, j, k) + Siz(i, j, k);
+            S(i, j, k) = 0.0;
 
             ASSERT3(finite(R(i, j, k)));
             ASSERT3(finite(E(i, j, k)));
@@ -1727,10 +1646,7 @@ private:
                                // gained by neutrals
   BoutReal charge_exchange_return_fE; // Fraction of energy carried by returning
                                       // CX neutrals
-
-  bool recombination; // Recombination plasma particle sink
-  bool ionisation; // Ionisation plasma particle source. Doesn't affect neutral
-                   // diffusion
+  
   bool excitation;         // Include electron-neutral excitation
 
   BoutReal nloss; // Neutral loss rate (1/timescale)
@@ -1741,15 +1657,11 @@ private:
   // Atomic physics transfer channels
 
   bool atomic; // Include atomic physics? This includes neutral gas evolution
-
-  Field3D Srec,
-      Siz; // Plasma particle sinks due to recombination and ionisation
-  Field3D Frec, Fiz, Fcx; // Plasma momentum sinks due to recombination, ionisation, charge
-           // exchange
-  Field3D Rrec, Riz, Rzrad,
-      Rex; // Plasma power sinks due to recombination, ionisation, impurity
-           // radiation, and hydrogen excitation
-  Field3D Erec, Eiz, Ecx; // Transfer of power from plasma to neutrals
+  
+  Field3D Fcx; // Plasma momentum sinks due to charge exchange
+  Field3D Rzrad, Rex; // Plasma power sinks due to impurity radiation, and
+                      // hydrogen excitation
+  Field3D Ecx;        // Transfer of power from plasma to neutrals
   Field3D Dcx;   // Redistribution of fast CX neutrals -> neutral loss
   Field3D Dcx_T; // Temperature of the fast CX neutrals
 
@@ -1763,8 +1675,6 @@ private:
   bool impurity_adas;        // True if using ImpuritySpecies, false if using
                              // RadiatedPower
   ImpuritySpecies *impurity; // Atomicpp impurity
-
-  BoutReal Eionize; // Ionisation energy loss
 
   bool neutral_f_pn; // When not evolving NVn, use F = Grad_par(Pn)
 

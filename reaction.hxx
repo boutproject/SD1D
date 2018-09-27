@@ -6,6 +6,7 @@
 #include "bout/generic_factory.hxx"
 #include "field3d.hxx"
 #include "unused.hxx"
+#include "options.hxx"
 
 #include <map>
 #include <string>
@@ -20,6 +21,8 @@ using SourceMap = std::map<std::string, Field3D>;
 /// Represent a reaction
 class Reaction {
 public:
+  Reaction() {}
+  Reaction(Options *UNUSED(options)) {}
   virtual ~Reaction() {}
   
   /// Update all species properties
@@ -43,6 +46,18 @@ public:
 
   /// Return a description
   virtual std::string str() const { return "Unknown reaction"; }
+};
+
+using ReactionFactory = Factory<Reaction, std::function<Reaction *(Options*)>>;
+
+// We need to specialise the helper class to pass arguments to the constructor
+template<typename DerivedType>
+class RegisterInFactory<Reaction, DerivedType> {
+public:
+  RegisterInFactory(const std::string &name) {
+    ReactionFactory::getInstance().add(
+        name, [](Options *option) -> Reaction * { return new DerivedType(option); });
+  }
 };
 
 //////////////////////////////////////////////////////////////////////////////

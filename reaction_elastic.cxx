@@ -19,7 +19,13 @@
 
 class ReactionElasticScattering : public Reaction {
 public:
-  ReactionElasticScattering() { SAVE_REPEAT2(Fel, Eel); }
+  ReactionElasticScattering(Options *options) {
+    bool diagnose;
+    OPTION(options, diagnose, false);
+    if (diagnose) {
+      SAVE_REPEAT2(Fel, Eel);
+    } 
+  }
 
   void updateSpecies(const SpeciesMap &species, BoutReal UNUSED(Tnorm),
                      BoutReal Nnorm, BoutReal Cs0, BoutReal Omega_ci) {

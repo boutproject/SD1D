@@ -9,7 +9,13 @@
 
 class ReactionHydrogenRecombination : public Reaction {
 public:
-  ReactionHydrogenRecombination() {}
+  ReactionHydrogenRecombination(Options *options) {
+    bool diagnose;
+    OPTION(options, diagnose, false);
+    if (diagnose) {
+      SAVE_REPEAT4(Rrec, Erec, Frec, Srec);
+    }
+  }
 
   void updateSpecies(const SpeciesMap &species, BoutReal Tnorm,
                      BoutReal Nnorm, BoutReal UNUSED(Cs0), BoutReal Omega_ci) {

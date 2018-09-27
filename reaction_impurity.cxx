@@ -6,6 +6,8 @@
 /// From I.H.Hutchinson Nucl. Fusion 34 (10) 1337 - 1348 (1994)
 class ReactionHutchinsonCarbon : public Reaction {
 public:
+  ReactionHutchinsonCarbon(Options* UNUSED(options)) {}
+  
   void updateSpecies(const SpeciesMap &species, BoutReal Tn, BoutReal Nn,
                      BoutReal UNUSED(Vn), BoutReal UNUSED(Freq)) {
     TRACE("ReactionHutchinsonCarbon::updateSpecies");
