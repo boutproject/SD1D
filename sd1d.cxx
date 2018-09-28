@@ -87,21 +87,17 @@ protected:
 
     OPTION(opt, atomic, true);
 
-    OPTION(opt, neutral_f_pn, true);
-
     OPTION(opt, hyper, -1);             // Numerical hyper-diffusion
     OPTION(opt, ADpar, -1);             // Added Dissipation scheme
     OPTION(opt, viscos, -1);            // Parallel viscosity
     OPTION(opt, ion_viscosity, false);  // Braginskii parallel viscosity
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
-
-    OPTION(opt, charge_exchange, true);
-    OPTION(opt, charge_exchange_escape, false);
-    OPTION(opt, charge_exchange_return_fE, 1.0);
-    
     
     if (atomic) {
       // Include atomic rates
+      
+      Options::getRoot()->getSection("NVn")->get("evolve", evolve_nvn, true);
+      Options::getRoot()->getSection("Pn")->get("evolve", evolve_pn, true);
       
       bool elastic_scattering; // Ion-neutral elastic scattering
       OPTION(opt, elastic_scattering, false);
@@ -129,6 +125,20 @@ protected:
       if (excitation) {
         reactions.push_back(ReactionFactory::getInstance().create("excitation", opt));
       }
+
+      bool charge_exchange;
+      OPTION(opt, charge_exchange, true);
+      if (charge_exchange) {
+        reactions.push_back(ReactionFactory::getInstance().create("hydrogen_cx", opt));
+      }
+
+      bool neutral_f_pn; // When not evolving NVn, use F = Grad_par(Pn)
+      OPTION(opt, neutral_f_pn, true);
+      if (!evolve_nvn && neutral_f_pn) {
+        // Not evolving neutral momentum. Add force calculated from neutral pressure
+        reactions.push_back(ReactionFactory::getInstance().create("neutralpressureforce", opt));
+      }
+
     }
     
     OPTION(opt, gamma_sound, 5. / 3); // Ratio of specific heats
@@ -223,9 +233,6 @@ protected:
       }
     }
 
-    Options::getRoot()->getSection("NVn")->get("evolve", evolve_nvn, true);
-    Options::getRoot()->getSection("Pn")->get("evolve", evolve_pn, true);
-
     nloss /= Omega_ci;
 
     // Specify variables to evolve
@@ -277,8 +284,6 @@ protected:
 
     // Add extra quantities to be saved
     if (atomic) {
-      SAVE_REPEAT3(S, E, F);  // Save net plasma particle source, radiated
-                                 // power, energy transfer, friction
       SAVE_REPEAT2(Dn, kappa_n); // Neutral diffusion coefficients
       SAVE_REPEAT(flux_ion);     // Flux of ions to target
     }
@@ -290,12 +295,6 @@ protected:
     if (diagnose) {
       // Output extra variables
       if (atomic) {
-        SAVE_REPEAT(Fcx);   // Save momentum sources
-        SAVE_REPEAT(Ecx);   // Save energy transfer
-        if (charge_exchange_escape) {
-          SAVE_REPEAT2(Dcx, Dcx_T); // Save particle loss of CX neutrals
-        }
-
         if (evolve_nvn) {
           SAVE_REPEAT(Vn);
         }
@@ -308,17 +307,9 @@ protected:
       SAVE_REPEAT(eta_i);
 
     kappa_epar = 0.0;
-
-    S = 0.0;
-    Fcx = 0.0;
-    F = 0.0;
-    Ecx = 0.0;
-    E = 0.0;
-    Dcx = 0.0;
-    Dcx_T = 0.0;
-
+    
     flux_ion = 0.0;
-
+    
     // Neutral gas diffusion and heat conduction
     Dn = 0.0;
     kappa_n = 0.0;
@@ -417,11 +408,13 @@ protected:
     // Set electron species properties
     species["e"].T = Te;
     species["e"].N = Ne;
+    species["e"].P = 0.5 * P;
     species["e"].V = Vi;
 
     // Ion species
     species["h+"].T = Te;
     species["h+"].N = Ne;
+    species["h+"].P = 0.5 * P;
     species["h+"].V = Vi;
 
     for (const auto &label : {"e", "h+"}) {
@@ -465,6 +458,7 @@ protected:
       // Neutral atom species
       species["h"].T = Tn;
       species["h"].N = Nn;
+      species["h"].P = Pn;
       species["h"].V = Vn;
 
       ddt(species["h"].N) = 0.0;  // Particle sources
@@ -837,9 +831,6 @@ protected:
         // Fixed fraction impurity radiation 
         species[impurity_species].N = fimp * Ne;
       }
-
-      // Power normalisation factor
-      BoutReal PowerNorm = 1./(SI::qe * Tnorm * Nnorm * Omega_ci);
       
       // Calculate reactions
       for (auto &r : reactions) {
@@ -850,9 +841,9 @@ protected:
         // Particle (density) sources
         for (const auto &s : r->densitySources()) {
           // s.first contains the species label (std::string)
-          // s.second is a Field3D with the source in SI units (m^-3)
+          // s.second is a Field3D with the source in normalised units
           try {
-            ddt(species.at(s.first).N) += s.second / Nnorm;
+            ddt(species.at(s.first).N) += s.second;
           } catch (const std::out_of_range &e) {
             throw BoutException("Unhandled density source for species '%s'", s.first.c_str());
           }
@@ -862,7 +853,7 @@ protected:
         for (const auto &s : r->momentumSources()) {
           // Note: Mass should be accounted for somewhere
           try {
-            ddt(species.at(s.first).NV) += s.second / (Nnorm * Cs0);
+            ddt(species.at(s.first).NV) += s.second;
           } catch (const std::out_of_range &e) {
             throw BoutException("Unhandled momentum source for species '%s'", s.first.c_str());
           }
@@ -870,110 +861,13 @@ protected:
         
         // Energy sources
         for (const auto &s : r->energySources()) {
-          // Add power to pressure equation, with 2/3 factor and normalisation
+          // Add power to pressure equation, with 2/3 factor
           try {
-            ddt(species.at(s.first).P) += (2./3) * s.second * PowerNorm;
+            ddt(species.at(s.first).P) += (2./3) * s.second;
           } catch (const std::out_of_range &e) {
             throw BoutException("Unhandled energy source for species '%s'", s.first.c_str());
           }
         }
-      }
-
-      // Add 
-      
-      E = 0.0; // Energy transfer to neutrals
-
-      // Lower floor on Nn for atomic rates
-      Field3D Nnlim2 = floor(Nn, 0.0);
-
-      for (int i = 0; i < mesh->LocalNx; i++)
-        for (int j = mesh->ystart; j <= mesh->yend; j++)
-          for (int k = 0; k < mesh->LocalNz; k++) {
-
-            // Integrate rates over each cell using Simpson's rule
-            // Calculate cell centre (C), left (L) and right (R) values
-
-            BoutReal Te_C = Te(i, j, k),
-                     Te_L = 0.5 * (Te(i, j - 1, k) + Te(i, j, k)),
-                     Te_R = 0.5 * (Te(i, j, k) + Te(i, j + 1, k));
-            BoutReal Ne_C = Ne(i, j, k),
-                     Ne_L = 0.5 * (Ne(i, j - 1, k) + Ne(i, j, k)),
-                     Ne_R = 0.5 * (Ne(i, j, k) + Ne(i, j + 1, k));
-            BoutReal Vi_C = Vi(i, j, k),
-                     Vi_L = 0.5 * (Vi(i, j - 1, k) + Vi(i, j, k)),
-                     Vi_R = 0.5 * (Vi(i, j, k) + Vi(i, j + 1, k));
-            BoutReal Tn_C = Tn(i, j, k),
-                     Tn_L = 0.5 * (Tn(i, j - 1, k) + Tn(i, j, k)),
-                     Tn_R = 0.5 * (Tn(i, j, k) + Tn(i, j + 1, k));
-            BoutReal Nn_C = Nnlim2(i, j, k),
-                     Nn_L = 0.5 * (Nnlim2(i, j - 1, k) + Nnlim2(i, j, k)),
-                     Nn_R = 0.5 * (Nnlim2(i, j, k) + Nnlim2(i, j + 1, k));
-            BoutReal Vn_C = Vn(i, j, k),
-                     Vn_L = 0.5 * (Vn(i, j - 1, k) + Vn(i, j, k)),
-                     Vn_R = 0.5 * (Vn(i, j, k) + Vn(i, j + 1, k));
-
-            // Jacobian (Cross-sectional area)
-            BoutReal J_C = coord->J(i, j),
-                     J_L = 0.5 * (coord->J(i, j - 1) + coord->J(i, j)),
-                     J_R = 0.5 * (coord->J(i, j) + coord->J(i, j + 1));
-
-            ///////////////////////////////////////
-            // Charge exchange
-
-            if (charge_exchange) {
-              BoutReal R_cx_L = Ne_L * Nn_L *
-                                hydrogen.chargeExchange(Te_L * Tnorm) *
-                                (Nnorm / Omega_ci);
-              BoutReal R_cx_C = Ne_C * Nn_C *
-                                hydrogen.chargeExchange(Te_C * Tnorm) *
-                                (Nnorm / Omega_ci);
-              BoutReal R_cx_R = Ne_R * Nn_R *
-                                hydrogen.chargeExchange(Te_R * Tnorm) *
-                                (Nnorm / Omega_ci);
-
-              // Ecx is energy transferred to neutrals
-              Ecx(i, j, k) = (3. / 2) *
-                             (J_L * (Te_L - Tn_L) * R_cx_L +
-                              4. * J_C * (Te_C - Tn_C) * R_cx_C +
-                              J_R * (Te_R - Tn_R) * R_cx_R) /
-                             (6. * J_C);
-
-              // Fcx is friction between plasma and neutrals
-              Fcx(i, j, k) = (J_L * (Vi_L - Vn_L) * R_cx_L +
-                              4. * J_C * (Vi_C - Vn_C) * R_cx_C +
-                              J_R * (Vi_R - Vn_R) * R_cx_R) /
-                             (6. * J_C);
-
-              // Dcx is a redistribution of fast neutrals due to charge exchange
-              // Acts as a sink of plasma density
-              Dcx(i, j, k) = (J_L * R_cx_L + 4. * J_C * R_cx_C + J_R * R_cx_R) /
-                             (6. * J_C);
-
-              // Energy lost from the plasma
-              // This gives the temperature of the CX neutrals when
-              // divided by Dcx
-              Dcx_T(i, j, k) = (J_L * Te_L * R_cx_L + 4. * J_C * Te_C * R_cx_C +
-                                J_R * Te_R * R_cx_R) /
-                               (6. * J_C);
-            }
-            
-            // Total energy transferred to neutrals
-            E(i, j, k) = Ecx(i, j, k);    // Charge exchange
-
-            // Total friction
-            F(i, j, k) = Fcx(i, j, k);  // Charge exchange
-
-            // Total sink of plasma, source of neutrals
-            S(i, j, k) = 0.0;
-
-            ASSERT3(finite(E(i, j, k)));
-            ASSERT3(finite(F(i, j, k)));
-            ASSERT3(finite(S(i, j, k)));
-          }
-
-      if (!evolve_nvn && neutral_f_pn) {
-        // Not evolving neutral momentum
-        F = Grad_par(Pn);
       }
     }
 
@@ -990,11 +884,7 @@ protected:
 
         Field3D a = sqrt(gamma_sound * 2. * Te); // Local sound speed
         ddt(Ne) = -Div_par_FV_FS(Ne, Vi, a, bndry_flux_fix); // Mass flow
-
-        if (atomic) {
-          ddt(Ne) -= S; // Sink to recombination
-        }
-
+        
         if (volume_source) {
           ddt(Ne) += NeSource; // External volume source
         }
@@ -1030,11 +920,6 @@ protected:
         ddt(NVi) = -Div_par_FV_FS(NVi, Vi, a, bndry_flux_fix) // Momentum flow
                    - Grad_par(P);
 
-        if (atomic) {
-          // Friction with neutrals
-          TRACE("ddt(NVi) -= F");
-          ddt(NVi) -= F;
-        }
       } else {
         ddt(NVi) = 0.0;
       }
@@ -1084,13 +969,7 @@ protected:
         ddt(P) += -Div_par_FV_FS(P, Vi, a, bndry_flux_fix) // Advection
                   - (2. / 3) * P * Div_par(Vi)             // Compression
             ;
-
-        if (atomic) {
-          // Include radiation and neutral interaction
-          ddt(P) -= (2. / 3) * (E // Energy transferred to neutrals
-                               );
-        }
-
+        
         if (volume_source) {
           // Volumetric source
 
@@ -1150,16 +1029,8 @@ protected:
 
       if (rhs_explicit) {
         ddt(Nn) = -Div_par_FV(Nn, Vn) // Advection
-                  + S                 // Source from recombining plasma
                   - nloss * Nn        // Loss of neutrals from the system
             ;
-
-        if (charge_exchange_escape) {
-          // Charge exchanged fast neutrals lost from the plasma,
-          // so acts as a local sink of neutral particles. These particles
-          // are redistributed and added back later
-          ddt(Nn) -= Dcx;
-        }
 
       } else {
         ddt(Nn) = 0.0;
@@ -1182,18 +1053,11 @@ protected:
 
         if (rhs_explicit) {
           ddt(NVn) = -Div_par_FV(NVn, Vn) // Momentum flow
-                     + F                  // Friction with plasma
                      - nloss * NVn        // Loss of neutrals from the system
                      - Grad_par(Pn)       // Pressure gradient
               ;
         } else {
           ddt(NVn) = 0.0;
-        }
-
-        if (charge_exchange_escape) {
-          // Charge exchange momentum lost from the plasma, but not gained by
-          // the neutrals
-          ddt(NVn) -= Fcx;
         }
 
         if (rhs_implicit) {
@@ -1232,15 +1096,8 @@ protected:
         if (rhs_explicit) {
           ddt(Pn) += -Div_par_FV(Pn, Vn)           // Advection
                      - (2. / 3) * Pn * Div_par(Vn) // Compression
-                     + (2. / 3) * E // Energy transferred to neutrals
                      - nloss * Pn   // Loss of neutrals from the system
               ;
-        }
-
-        if (charge_exchange_escape) {
-          // Fast neutrals escape from the plasma, being redistributed
-          // Hence energy is not transferred to neutrals directly
-          ddt(Pn) -= Dcx_T;
         }
 
         if (rhs_implicit) {
@@ -1351,43 +1208,6 @@ protected:
           if (evolve_pn) {
             // Set temperature of the incoming neutrals to F-C
             ddt(Pn)(mesh->xstart, j, 0) += ncell * (3.5 / Tnorm);
-          }
-        }
-
-        if (charge_exchange_escape) {
-          // Fast CX neutrals lost from plasma.
-          // These are redistributed, along with a fraction of their energy
-
-          BoutReal Dcx_Ntot = 0.0;
-          BoutReal Dcx_Ttot = 0.0;
-          for (int j = mesh->ystart; j <= mesh->yend; j++) {
-            Dcx_Ntot += Dcx(mesh->xstart, j, 0) * coord->J(mesh->xstart, j) *
-                        coord->dy(mesh->xstart, j);
-            Dcx_Ttot += Dcx_T(mesh->xstart, j, 0) * coord->J(mesh->xstart, j) *
-                        coord->dy(mesh->xstart, j);
-          }
-
-          // Now sum on all processors
-          BoutReal send[2] = {Dcx_Ntot, Dcx_Ttot};
-          BoutReal recv[2];
-          MPI_Allreduce(send, recv, 2, MPI_DOUBLE, MPI_SUM, ycomm);
-          Dcx_Ntot = recv[0];
-          Dcx_Ttot = recv[1];
-
-          // Scale the energy of the returning CX neutrals
-          Dcx_Ttot *= charge_exchange_return_fE;
-
-          // Use the normalised redistribuion weight
-          // sum ( redist_weight * J * dy ) = 1
-          for (int j = mesh->ystart; j <= mesh->yend; j++) {
-            ddt(Nn)(mesh->xstart, j, 0) +=
-                Dcx_Ntot * redist_weight(mesh->xstart, j);
-          }
-          if (evolve_pn) {
-            for (int j = mesh->ystart; j <= mesh->yend; j++) {
-              ddt(Pn)(mesh->xstart, j, 0) +=
-                  Dcx_Ttot * redist_weight(mesh->xstart, j);
-            }
           }
         }
       }
@@ -1596,13 +1416,6 @@ private:
   bool ion_viscosity;   // Braginskii ion viscosity on/off
   bool heat_conduction; // Thermal conduction on/off
 
-  bool charge_exchange; // Charge exchange between plasma and neutrals. Doesn't
-                        // affect neutral diffusion
-  bool charge_exchange_escape; // Charge-exchange momentum lost from plasma, not
-                               // gained by neutrals
-  BoutReal charge_exchange_return_fE; // Fraction of energy carried by returning
-                                      // CX neutrals
-  
   BoutReal nloss; // Neutral loss rate (1/timescale)
 
   BoutReal anomalous_D, anomalous_chi; // Anomalous transport
@@ -1612,22 +1425,12 @@ private:
 
   bool atomic; // Include atomic physics? This includes neutral gas evolution
   
-  Field3D Fcx; // Plasma momentum sinks due to charge exchange
-  Field3D Ecx;        // Transfer of power from plasma to neutrals
-  Field3D Dcx;   // Redistribution of fast CX neutrals -> neutral loss
-  Field3D Dcx_T; // Temperature of the fast CX neutrals
-
-  Field3D S, F,
-      E; // Exchange of particles, momentum and energy from plasma to neutrals
-
   UpdatedRadiatedPower hydrogen; // Atomic rates
 
   BoutReal fimp;             // Impurity fraction (of Ne)
   bool impurity_adas;        // True if using Atomic++ library
   string impurity_species;   // Name of impurity species to use
   
-  bool neutral_f_pn; // When not evolving NVn, use F = Grad_par(Pn)
-
   std::vector<Reaction*> reactions; // Reaction set to include
   
   ///////////////////////////////////////////////////////////////

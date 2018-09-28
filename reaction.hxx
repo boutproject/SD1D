@@ -36,12 +36,15 @@ public:
                              BoutReal UNUSED(Vnorm), BoutReal UNUSED(Freq)) {}
 
   /// Return density source for a set of species
+  /// Note: All quantities normalised
   virtual SourceMap densitySources() { return {}; }
 
   /// Return momentum sources
+  /// Note: All quantities normalised
   virtual SourceMap momentumSources() { return {}; }
 
   /// energy sources
+  /// Note: All quantities normalised
   virtual SourceMap energySources() { return {}; }
 
   /// Return a description

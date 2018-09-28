@@ -25,13 +25,26 @@ public:
   void updateSpecies(const SpeciesMap &species, BoutReal Tnorm,
                      BoutReal Nnorm, BoutReal UNUSED(Cs0), BoutReal Omega_ci) {
     // Get the species
-    auto &atoms = species.at("h");
-    auto &elec  = species.at("e");
-
     // Extract required variables
-    Field3D Ne{elec.N}, Te{elec.T};
-    Field3D Nn{atoms.N}, Tn{atoms.T}, Vn{atoms.V};
-
+    Field3D Nn, Tn, Vn;
+    try {
+      auto &atoms = species.at("h");
+      Nn = atoms.N;
+      Tn = atoms.T;
+      Vn = atoms.V;
+    } catch (const std::out_of_range &e) {
+      throw BoutException("No 'h' species");
+    }
+    
+    Field3D Ne, Te;
+    try {
+      auto &elec  = species.at("e");
+      Ne = elec.N;
+      Te = elec.T;
+    } catch (const std::out_of_range &e) {
+      throw BoutException("No 'e' species");
+    }
+    
     Coordinates *coord = mesh->coordinates();
 
     Riz = 0.0;

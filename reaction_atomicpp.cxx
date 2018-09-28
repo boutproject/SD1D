@@ -28,7 +28,7 @@ public:
   }
 
   void updateSpecies(const SpeciesMap &species, BoutReal Tnorm, BoutReal Nnorm,
-                     BoutReal UNUSED(Vn), BoutReal UNUSED(Omega_ci)) {
+                     BoutReal UNUSED(Vn), BoutReal Omega_ci) {
     TRACE("ReactionHutchinsonCarbon::updateSpecies");
 
     Field3D Te, Ne, Nz, Nn;
@@ -58,6 +58,8 @@ public:
 
     Rzrad = 0.0;
 
+    BoutReal power_norm = 1./(SI::qe * Tnorm * Nnorm * Omega_ci);
+    
     CELL_AVERAGE(i,                         // Index variable
                  Rzrad.region(RGN_NOBNDRY), // Index and region (input)
                  coord,                     // Coordinate system (input)
@@ -68,7 +70,8 @@ public:
                                         Te * Tnorm, // electron temperature [eV]
                                         Ne * Nnorm, // electron density [m^-3]
                                         Nz * Nnorm, // impurity density [m^-3]
-                                        Nn * Nnorm); // Neutral density [m^-3]
+                                        Nn * Nnorm) // Neutral density [m^-3]
+        * power_norm;
     }
   }
 

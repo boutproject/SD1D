@@ -19,15 +19,28 @@ public:
 
   void updateSpecies(const SpeciesMap &species, BoutReal Tnorm,
                      BoutReal Nnorm, BoutReal UNUSED(Cs0), BoutReal Omega_ci) {
-
+    TRACE("ReactionHydrogenRecombination::updateSpecies");
+    
     // Get the species
-    auto &ions = species.at("h+");
-    auto &elec = species.at("e");
-
+    Field3D Ti, Vi;
+    try {
+      auto &ions = species.at("h+");
+      Ti = ions.T;
+      Vi = ions.V;
+    } catch (const std::out_of_range &e) {
+      throw BoutException("No 'h+' species");
+    }
+    
     // Extract required variables
-    Field3D Ne{elec.N}, Te{elec.T};
-    Field3D Ti{ions.T}, Vi{ions.V};
-
+    Field3D Ne, Te;
+    try {
+      auto &elec = species.at("e");
+      Ne = elec.N;
+      Te = elec.T;
+    } catch (const std::out_of_range &e) {
+      throw BoutException("No 'e' species");
+    }
+    
     Coordinates *coord = mesh->coordinates();
     
     Rrec = 0.0;
