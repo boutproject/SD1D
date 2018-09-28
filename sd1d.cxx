@@ -49,10 +49,6 @@
 #include "species.hxx"
 #include "reaction.hxx"
 
-// OpenADAS interface Atomicpp by T.Body
-#include "atomicpp/ImpuritySpecies.hxx"
-#include "atomicpp/Prad.hxx"
-
 class SD1D : public PhysicsModel {
 protected:
   int init(bool restarting) {
@@ -103,8 +99,7 @@ protected:
     OPTION(opt, charge_exchange_escape, false);
     OPTION(opt, charge_exchange_return_fE, 1.0);
     
-    OPTION(opt, excitation, false); // Include electron impact excitation?
-
+    
     if (atomic) {
       // Include atomic rates
       
@@ -126,6 +121,13 @@ protected:
       OPTION(opt, ionisation, true);
       if (ionisation) {
         reactions.push_back(ReactionFactory::getInstance().create("ionisation", opt));
+      }
+
+      // Include electron-neutral excitation
+      bool excitation;
+      OPTION(opt, excitation, false);
+      if (excitation) {
+        reactions.push_back(ReactionFactory::getInstance().create("excitation", opt));
       }
     }
     
@@ -254,24 +256,28 @@ protected:
     // Impurities
     OPTION(opt, fimp, 0.0); // Fixed impurity fraction
 
-    OPTION(opt, impurity_adas, false);
-    if (impurity_adas) {
-      // Use OpenADAS data through Atomicpp
-      // Find out which species to model
-      string impurity_species;
-      OPTION(opt, impurity_species, "c");
-      impurity = new ImpuritySpecies(impurity_species);
-    } else {
-      // Use carbon radiation for the impurity
-      if (fimp > 0.0) {
+    if (fimp > 0) {
+
+      OPTION(opt, impurity_adas, false);
+      if (impurity_adas) {
+        // Use OpenADAS data through Atomicpp
+        // Find out which species to model
+
+        OPTION(opt, impurity_species, "c");
+        
         reactions.push_back(
-            ReactionFactory::getInstance().create("c_hutchinson", opt));
+                            ReactionFactory::getInstance().create("atomic++coronal", opt));
+      } else {
+        // Use carbon radiation for the impurity
+        impurity_species = "c";
+        reactions.push_back(
+                            ReactionFactory::getInstance().create("c_hutchinson", opt));
       }
     }
 
     // Add extra quantities to be saved
     if (atomic) {
-      SAVE_REPEAT4(S, R, E, F);  // Save net plasma particle source, radiated
+      SAVE_REPEAT3(S, E, F);  // Save net plasma particle source, radiated
                                  // power, energy transfer, friction
       SAVE_REPEAT2(Dn, kappa_n); // Neutral diffusion coefficients
       SAVE_REPEAT(flux_ion);     // Flux of ions to target
@@ -285,13 +291,9 @@ protected:
       // Output extra variables
       if (atomic) {
         SAVE_REPEAT(Fcx);   // Save momentum sources
-        SAVE_REPEAT(Rzrad); // Save radiation sources
         SAVE_REPEAT(Ecx);   // Save energy transfer
         if (charge_exchange_escape) {
           SAVE_REPEAT2(Dcx, Dcx_T); // Save particle loss of CX neutrals
-        }
-        if (excitation) {
-          SAVE_REPEAT(Rex); // Electron-neutral excitation
         }
 
         if (evolve_nvn) {
@@ -310,9 +312,6 @@ protected:
     S = 0.0;
     Fcx = 0.0;
     F = 0.0;
-    Rzrad = 0.0;
-    Rex = 0.0;
-    R = 0.0;
     Ecx = 0.0;
     E = 0.0;
     Dcx = 0.0;
@@ -833,28 +832,11 @@ protected:
     if (atomic && rhs_explicit) {
       // Atomic physics
       TRACE("Atomic");
-
-      Rzrad = 0.0;
       
       if (fimp > 0.0) {
-        // Impurity radiation
-        
-        if (impurity_adas) {
-          Rzrad.allocate();
-          for (auto &i : Rzrad) {
-            Rzrad[i] = computeRadiatedPower(
-                *impurity,
-                Te[i] * Tnorm,        // electron temperature [eV]
-                Ne[i] * Nnorm,        // electron density [m^-3]
-                fimp * Ne[i] * Nnorm, // impurity density [m^-3]
-                Nn[i] * Nnorm);       // Neutral density [m^-3]
-          }
-          Rzrad /= SI::qe * Tnorm * Nnorm * Omega_ci; // Normalise
-        } else {
-          // Fixed fraction carbon
-          species["c"].N = fimp * Ne;
-        }
-      } // else Rzrad = 0.0 set in init()
+        // Fixed fraction impurity radiation 
+        species[impurity_species].N = fimp * Ne;
+      }
 
       // Power normalisation factor
       BoutReal PowerNorm = 1./(SI::qe * Tnorm * Nnorm * Omega_ci);
@@ -975,30 +957,6 @@ protected:
                                (6. * J_C);
             }
             
-            if (excitation) {
-              /////////////////////////////////////////////////////////
-              // Electron-neutral excitation
-              // Note: Rates need checking
-              // Currently assuming that quantity calculated is in [eV m^3/s]
-
-              BoutReal R_ex_L = Ne_L * Nn_L *
-                                hydrogen.excitation(Te_L * Tnorm) * Nnorm /
-                                Omega_ci / Tnorm;
-              BoutReal R_ex_C = Ne_C * Nn_C *
-                                hydrogen.excitation(Te_C * Tnorm) * Nnorm /
-                                Omega_ci / Tnorm;
-              BoutReal R_ex_R = Ne_R * Nn_R *
-                                hydrogen.excitation(Te_R * Tnorm) * Nnorm /
-                                Omega_ci / Tnorm;
-
-              Rex(i, j, k) = (J_L * R_ex_L + 4. * J_C * R_ex_C + J_R * R_ex_R) /
-                             (6. * J_C);
-            }
-
-            // Total energy lost from system
-            R(i, j, k) = Rzrad(i, j, k)  // Radiated power from impurities
-                         + Rex(i, j, k); // Excitation
-
             // Total energy transferred to neutrals
             E(i, j, k) = Ecx(i, j, k);    // Charge exchange
 
@@ -1008,7 +966,6 @@ protected:
             // Total sink of plasma, source of neutrals
             S(i, j, k) = 0.0;
 
-            ASSERT3(finite(R(i, j, k)));
             ASSERT3(finite(E(i, j, k)));
             ASSERT3(finite(F(i, j, k)));
             ASSERT3(finite(S(i, j, k)));
@@ -1130,8 +1087,7 @@ protected:
 
         if (atomic) {
           // Include radiation and neutral interaction
-          ddt(P) -= (2. / 3) * (R   // Radiated power
-                                + E // Energy transferred to neutrals
+          ddt(P) -= (2. / 3) * (E // Energy transferred to neutrals
                                );
         }
 
@@ -1647,8 +1603,6 @@ private:
   BoutReal charge_exchange_return_fE; // Fraction of energy carried by returning
                                       // CX neutrals
   
-  bool excitation;         // Include electron-neutral excitation
-
   BoutReal nloss; // Neutral loss rate (1/timescale)
 
   BoutReal anomalous_D, anomalous_chi; // Anomalous transport
@@ -1659,23 +1613,19 @@ private:
   bool atomic; // Include atomic physics? This includes neutral gas evolution
   
   Field3D Fcx; // Plasma momentum sinks due to charge exchange
-  Field3D Rzrad, Rex; // Plasma power sinks due to impurity radiation, and
-                      // hydrogen excitation
   Field3D Ecx;        // Transfer of power from plasma to neutrals
   Field3D Dcx;   // Redistribution of fast CX neutrals -> neutral loss
   Field3D Dcx_T; // Temperature of the fast CX neutrals
 
   Field3D S, F,
       E; // Exchange of particles, momentum and energy from plasma to neutrals
-  Field3D R; // Radiated power
 
   UpdatedRadiatedPower hydrogen; // Atomic rates
 
   BoutReal fimp;             // Impurity fraction (of Ne)
-  bool impurity_adas;        // True if using ImpuritySpecies, false if using
-                             // RadiatedPower
-  ImpuritySpecies *impurity; // Atomicpp impurity
-
+  bool impurity_adas;        // True if using Atomic++ library
+  string impurity_species;   // Name of impurity species to use
+  
   bool neutral_f_pn; // When not evolving NVn, use F = Grad_par(Pn)
 
   std::vector<Reaction*> reactions; // Reaction set to include
