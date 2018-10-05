@@ -28,7 +28,7 @@ public:
     // Extract required variables
     Field3D Nn, Tn, Vn;
     try {
-      auto &atoms = species.at("h");
+      auto &atoms = *species.at("h");
       Nn = atoms.N;
       Tn = atoms.T;
       Vn = atoms.V;
@@ -38,7 +38,7 @@ public:
     
     Field3D Ne, Te;
     try {
-      auto &elec  = species.at("e");
+      auto &elec  = *species.at("e");
       Ne = elec.N;
       Te = elec.T;
     } catch (const std::out_of_range &e) {

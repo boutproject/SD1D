@@ -22,8 +22,8 @@ public:
                      BoutReal Nnorm, BoutReal UNUSED(Cs0), BoutReal Omega_ci) {
 
     // Get the species
-    auto &atoms = species.at("h");
-    auto &elec  = species.at("e");
+    auto &atoms = *species.at("h");
+    auto &elec  = *species.at("e");
 
     // Extract required variables
     Field3D Ne{elec.N}, Te{elec.T};

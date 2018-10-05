@@ -14,7 +14,7 @@ public:
     
     Field3D Pn;
     try {
-      Pn = species.at("h").P; // Neutral pressure
+      Pn = species.at("h")->P; // Neutral pressure
     } catch(const std::out_of_range &e) {
       throw BoutException("No 'h' species");
     }

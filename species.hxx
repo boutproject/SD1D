@@ -26,22 +26,27 @@ public:
   virtual ~Species() {}
   
   BoutReal Nnorm, Tnorm, Vnorm; /// Normalisation factors
+  
   Field3D N;                    // Density
   Field3D P;                    // Pressure
   Field3D NV;                   // Momentum
+  
   Field3D T;                    // Temperature
   Field3D V;                    // Velocity
-
-  /// Initialise time integration
-  virtual void init(bool UNUSED(restarting), Solver *UNUSED(solver)) {}
+  
   /// Calculate time derivatives
   /// overwriting any previous values
-  virtual void evolve(BoutReal UNUSED(time)) {}
+  virtual void evolve(BoutReal UNUSED(time)) {
+    // Zero time derivatives, since these may be used for reactions
+    ddt(N) = 0.0;
+    ddt(P) = 0.0;
+    ddt(NV) = 0.0;
+  }
   
 };
 
-/// Map from string to Species
-using SpeciesMap = std::map<std::string, Species>;
+/// Map from string to Species pointers
+using SpeciesMap = std::map<std::string, Species*>;
 
 class FluidSpecies : public Species {
 public:

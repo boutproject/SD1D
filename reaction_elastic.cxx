@@ -35,7 +35,7 @@ public:
     // Plasma ions
     Field3D Ti, Ni, Vi;
     try {
-      const auto &ions = species.at("h+");
+      const auto &ions = *species.at("h+");
       
       Ti = ions.T;
       Ni = ions.N;
@@ -47,7 +47,7 @@ public:
     // Neutral atoms
     Field3D Tn, Nn, Vn;
     try {
-      const auto &atoms = species.at("h");
+      const auto &atoms = *species.at("h");
       Tn = atoms.T;
       Nn = atoms.N;
       Vn = atoms.V;

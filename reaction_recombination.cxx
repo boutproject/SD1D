@@ -24,7 +24,7 @@ public:
     // Get the species
     Field3D Ti, Vi;
     try {
-      auto &ions = species.at("h+");
+      auto &ions = *species.at("h+");
       Ti = ions.T;
       Vi = ions.V;
     } catch (const std::out_of_range &e) {
@@ -34,7 +34,7 @@ public:
     // Extract required variables
     Field3D Ne, Te;
     try {
-      auto &elec = species.at("e");
+      auto &elec = *species.at("e");
       Ne = elec.N;
       Te = elec.T;
     } catch (const std::out_of_range &e) {

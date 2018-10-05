@@ -64,8 +64,8 @@ public:
                      BoutReal Nnorm, BoutReal UNUSED(Cs0), BoutReal Omega_ci) {
 
     // Get the species
-    auto &atoms = species.at("h");
-    auto &ions  = species.at("h+");
+    auto &atoms = *species.at("h");
+    auto &ions  = *species.at("h+");
 
     // Extract required variables
     Field3D Ni{ions.N}, Ti{ions.T}, Vi{ions.V};

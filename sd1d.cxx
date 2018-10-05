@@ -236,11 +236,23 @@ protected:
     nloss /= Omega_ci;
 
     // Specify variables to evolve
-    solver->add(Ne, "Ne");
-    solver->add(NVi, "NVi");
-    solver->add(P, "P");
+    // solver->add(Ne, "Ne");
+    // solver->add(NVi, "NVi");
+    // solver->add(P, "P");
 
+    // Electrons are handled differently,
+    // so not an evolving species
+    species["e"] = new Species(); 
+    // Hydrogen ions, evolving
+    species["h+"] = new FluidSpecies("h+",
+                                     opt,
+                                     solver,
+                                     restarting); 
+    
     if (atomic) {
+
+      // Atomic hydrogen species
+      species["h"] = new Species();
       
       solver->add(Nn, "Nn");
       if (evolve_nvn) {
@@ -280,6 +292,9 @@ protected:
         reactions.push_back(
                             ReactionFactory::getInstance().create("c_hutchinson", opt));
       }
+
+      // Create a Species object for the impurity
+      species[impurity_species] = new Species();
     }
 
     // Add extra quantities to be saved
@@ -366,6 +381,13 @@ protected:
     }
     setSplitOperator(split_operator);
 
+
+    // Molecules
+    // species["h2"] = new FluidSpecies("h2",
+    //                                  opt,
+    //                                  solver,
+    //                                  restarting);
+    
     output << "\n-----------------------\nAvailable reactions: \n";
     for (auto i :  ReactionFactory::getInstance().listAvailable()) {
       output << "\t" << i << "\n";
@@ -379,6 +401,12 @@ protected:
       }
     }
     output << "-------------------------\n";
+
+    output << "Species:\n";
+    for (auto const &s : species) {
+      output << "\t" << s.first << "\n";
+    }
+    output << "-------------------------\n";
     
     return 0;
   }
@@ -389,40 +417,35 @@ protected:
    *
    */
   int rhs(BoutReal time) {
-    // fprintf(stderr, "\rTime: %e", time);
 
-    Coordinates *coord = mesh->coordinates();
-
-    mesh->communicate(Ne, NVi, P);
-
-    // Floor small values
-    P = floor(P, 1e-10);
-    Ne = floor(Ne, 1e-10);
-
-    Field3D Nelim = floor(Ne, 1e-5);
-
-    Vi = NVi / Ne;
-
-    Field3D Te = 0.5 * P / Ne; // Assuming Te = Ti
-
-    // Set electron species properties
-    species["e"].T = Te;
-    species["e"].N = Ne;
-    species["e"].P = 0.5 * P;
-    species["e"].V = Vi;
-
-    // Ion species
-    species["h+"].T = Te;
-    species["h+"].N = Ne;
-    species["h+"].P = 0.5 * P;
-    species["h+"].V = Vi;
-
-    for (const auto &label : {"e", "h+"}) {
-      ddt(species[label].N) = 0.0;  // Particle sources
-      ddt(species[label].NV) = 0.0; // Momentum sources
-      ddt(species[label].P) = 0.0;  // Energy sources
+    // Evolve ion species
+    for(auto &s : species) {
+      s.second->evolve(time);
     }
 
+    // Electrons handled separately
+    auto &ions = *species.at("h+");
+
+    Te = ions.T;
+    Ne = ions.N;
+
+    P = 2. * ions.P; // Total pressure
+    
+    NVi = ions.NV;
+    Vi = ions.V;
+    
+    Coordinates *coord = mesh->coordinates();
+    
+    Field3D Nelim = floor(Ne, 1e-5);
+    
+
+    // Set electron species properties
+    auto &electrons = *species.at("e");
+    electrons.T = Te;
+    electrons.N = Ne;
+    electrons.P = 0.5 * P;
+    electrons.V = Vi;
+    
     Field3D Nnlim;
     Field3D Tn;
     
@@ -456,14 +479,15 @@ protected:
       }
 
       // Neutral atom species
-      species["h"].T = Tn;
-      species["h"].N = Nn;
-      species["h"].P = Pn;
-      species["h"].V = Vn;
+      auto &atoms = *species.at("h");
+      atoms.T = Tn;
+      atoms.N = Nn;
+      atoms.P = Pn;
+      atoms.V = Vn;
 
-      ddt(species["h"].N) = 0.0;  // Particle sources
-      ddt(species["h"].NV) = 0.0; // Momentum sources
-      ddt(species["h"].P) = 0.0;  // Energy sources
+      ddt(atoms.N) = 0.0;  // Particle sources
+      ddt(atoms.NV) = 0.0; // Momentum sources
+      ddt(atoms.P) = 0.0;  // Energy sources
     }
 
     if (update_coefficients) {
@@ -767,10 +791,7 @@ protected:
         // Calculate source from combination of error and integral
         source = density_controller_p * error +
                  density_controller_i * density_error_integral;
-
-        // output.write("\n Source: %e, %e : %e, %e -> %e\n", time, (time -
-        // density_error_lasttime), error, density_error_integral, source);
-
+        
         density_error_last = error;
         density_error_lasttime = time;
 
@@ -829,7 +850,7 @@ protected:
       
       if (fimp > 0.0) {
         // Fixed fraction impurity radiation 
-        species[impurity_species].N = fimp * Ne;
+        species.at(impurity_species)->N = fimp * Ne;
       }
       
       // Calculate reactions
@@ -843,7 +864,7 @@ protected:
           // s.first contains the species label (std::string)
           // s.second is a Field3D with the source in normalised units
           try {
-            ddt(species.at(s.first).N) += s.second;
+            ddt(species.at(s.first)->N) += s.second;
           } catch (const std::out_of_range &e) {
             throw BoutException("Unhandled density source for species '%s'", s.first.c_str());
           }
@@ -853,7 +874,7 @@ protected:
         for (const auto &s : r->momentumSources()) {
           // Note: Mass should be accounted for somewhere
           try {
-            ddt(species.at(s.first).NV) += s.second;
+            ddt(species.at(s.first)->NV) += s.second;
           } catch (const std::out_of_range &e) {
             throw BoutException("Unhandled momentum source for species '%s'", s.first.c_str());
           }
@@ -863,7 +884,7 @@ protected:
         for (const auto &s : r->energySources()) {
           // Add power to pressure equation, with 2/3 factor
           try {
-            ddt(species.at(s.first).P) += (2./3) * s.second;
+            ddt(species.at(s.first)->P) += (2./3) * s.second;
           } catch (const std::out_of_range &e) {
             throw BoutException("Unhandled energy source for species '%s'", s.first.c_str());
           }
@@ -1217,16 +1238,16 @@ protected:
     if (atomic && rhs_explicit) {
       // Plasma equations sum electron and ion contributions
       try {
-        ddt(Ne)  += ddt(species.at("e").N);
-        ddt(NVi) += ddt(species.at("h+").NV);
-        ddt(P)   += ddt(species.at("e").P) + ddt(species.at("h+").P);
+        ddt(Ne)  += ddt(species.at("e")->N);
+        ddt(NVi) += ddt(species.at("h+")->NV);
+        ddt(P)   += ddt(species.at("e")->P) + ddt(species.at("h+")->P);
         
-        ddt(Nn) += ddt(species.at("h").N);
+        ddt(Nn) += ddt(species.at("h")->N);
         if (evolve_nvn) {
-          ddt(NVn) += ddt(species.at("h").NV);
+          ddt(NVn) += ddt(species.at("h")->NV);
         }
         if (evolve_pn) {
-          ddt(P) += ddt(species.at("h").P);
+          ddt(Pn) += ddt(species.at("h")->P);
         }
       } catch (const std::out_of_range &e) {
         throw BoutException("Failed while adding sources");

@@ -17,8 +17,8 @@ public:
     // Electron temperature and density
     Field3D Te, ne;
     try {
-      Te = species.at("e").T;
-      ne = species.at("e").N;
+      Te = species.at("e")->T;
+      ne = species.at("e")->N;
     } catch (const std::out_of_range &e) {
       throw BoutException("No 'e' species");
     }
@@ -26,7 +26,7 @@ public:
     // Carbon density
     Field3D ni;
     try {
-      ni = species.at("c").N;
+      ni = species.at("c")->N;
     } catch (const std::out_of_range &e) {
       throw BoutException("No 'c' species");
     }

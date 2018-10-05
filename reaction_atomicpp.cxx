@@ -34,22 +34,23 @@ public:
     Field3D Te, Ne, Nz, Nn;
     // Electron temperature and density
     try {
-      Te = species.at("e").T;
-      Ne = species.at("e").N;
+      auto &electrons = *species.at("e");
+      Te = electrons.T;
+      Ne = electrons.N;
     } catch (const std::out_of_range &e) {
       throw BoutException("No 'e' species");
     }
 
     // Neutral atom density
     try {
-      Nn = species.at("h").N;
+      Nn = species.at("h")->N;
     } catch (const std::out_of_range &e) {
       throw BoutException("No 'h' species");
     }
 
     // Impurity density
     try {
-      Nz = species.at(impurity_species).N;
+      Nz = species.at(impurity_species)->N;
     } catch (const std::out_of_range &e) {
       throw BoutException("No '%s' species", impurity_species.c_str());
     }

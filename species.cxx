@@ -5,7 +5,7 @@
 FluidSpecies::FluidSpecies(std::string name,
                            Options *opt,
                            Solver *solver,
-                           bool restarting) : name(std::move(name)) {
+                           bool restarting) : name(name) {
   
   OPTION(opt, gamma_sound, 5. / 3); // Ratio of specific heats
   OPTION(opt, bndry_flux_fix, false);
@@ -29,7 +29,20 @@ void FluidSpecies::evolve(BoutReal UNUSED(time)) {
 
   V = NV / N; // Velocity
   T = P / N;  // Temperature
-
+  
+  // No-flow boundary condition on left boundary
+  for (RangeIterator r = mesh->iterateBndryLowerY(); !r.isDone(); r++) {
+    for (int jz = 0; jz < mesh->LocalNz; jz++) {
+      for (int jy = 0; jy < mesh->ystart; jy++) {
+        T(r.ind, jy, jz) = T(r.ind, mesh->ystart, jz);
+        N(r.ind, jy, jz) = N(r.ind, mesh->ystart, jz);
+        P(r.ind, jy, jz) = P(r.ind, mesh->ystart, jz);
+        V(r.ind, jy, jz) = -V(r.ind, mesh->ystart, jz);
+        NV(r.ind, jy, jz) = -NV(r.ind, mesh->ystart, jz);
+      }
+    }
+  }
+  
   Field3D a = sqrt(gamma_sound * T); // Local sound speed
 
   {
@@ -45,8 +58,8 @@ void FluidSpecies::evolve(BoutReal UNUSED(time)) {
   {
     TRACE("Pressure");
 
-    ddt(P) += -Div_par_FV_FS(P, V, a, bndry_flux_fix) // Advection
-              - (2. / 3) * P * Div_par(V)             // Compression
+    ddt(P) = -Div_par_FV_FS(P, V, a, bndry_flux_fix) // Advection
+             - (2. / 3) * P * Div_par(V)             // Compression
         ;
   }
 
