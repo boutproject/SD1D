@@ -63,6 +63,19 @@ private:
   bool bndry_flux_fix;
   BoutReal gamma_sound; // Ratio of specific heats in numerical dissipation term
   
+  int density_sheath;  // How to handle density boundary?
+  int pressure_sheath; // How to handle pressure boundary?
+  BoutReal sheath_gamma; // Sheath heat transmission factor
+
+  BoutReal anomalous_D, anomalous_chi; // Anomalous transport
+
+  BoutReal viscos; // Numerical dissipation terms
+  
+  Field3D eta_i;        // Braginskii ion viscosity
+  bool ion_viscosity;   // Braginskii ion viscosity on/off
+
+  BoutReal Nnorm, Tnorm, Omega_ci, Cs0;
+  BoutReal tau_e0;
 };
 
 #endif // __SPECIES_HXX__

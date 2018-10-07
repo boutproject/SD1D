@@ -247,7 +247,8 @@ protected:
     species["h+"] = new FluidSpecies("h+",
                                      opt,
                                      solver,
-                                     restarting); 
+                                     restarting,
+                                     Nnorm, Tnorm, Omega_ci, Cs0); 
     
     if (atomic) {
 
@@ -426,7 +427,7 @@ protected:
     // Electrons handled separately
     auto &ions = *species.at("h+");
 
-    Te = ions.T;
+    Field3D Te = ions.T;
     Ne = ions.N;
 
     P = 2. * ions.P; // Total pressure
@@ -438,7 +439,6 @@ protected:
     
     Field3D Nelim = floor(Ne, 1e-5);
     
-
     // Set electron species properties
     auto &electrons = *species.at("e");
     electrons.T = Te;
@@ -484,10 +484,6 @@ protected:
       atoms.N = Nn;
       atoms.P = Pn;
       atoms.V = Vn;
-
-      ddt(atoms.N) = 0.0;  // Particle sources
-      ddt(atoms.NV) = 0.0; // Momentum sources
-      ddt(atoms.P) = 0.0;  // Energy sources
     }
 
     if (update_coefficients) {
@@ -558,7 +554,6 @@ protected:
     // Set sheath boundary condition on flow
 
     TRACE("Sheath");
-    ddt(P) = 0.0; // Need to set heat flux
 
     if (evolve_pn) {
       ddt(Pn) = 0.0;
@@ -567,120 +562,9 @@ protected:
     for (RangeIterator r = mesh->iterateBndryUpperY(); !r.isDone(); r++) {
       int jz = 0;
 
-      // Outward flow velocity to >= Cs
-      BoutReal Vout =
-          sqrt(2.0 * Te(r.ind, mesh->yend, jz)); // Sound speed outwards
-      if (Vi(r.ind, mesh->yend, jz) > Vout)
-        Vout = Vi(r.ind, mesh->yend,
-                  jz); // If plasma is faster, go to plasma velocity
-
-      BoutReal Nout;
-      switch (density_sheath) {
-      case 0: {
-        // Free boundary on density (constant gradient)
-        Nout = 0.5 *
-               (3. * Ne(r.ind, mesh->yend, jz) - Ne(r.ind, mesh->yend - 1, jz));
-        break;
-      }
-      case 1: {
-        // Zero gradient
-        Nout = Ne(r.ind, mesh->yend, jz);
-        break;
-      }
-      case 2: {
-        // Zero gradient particle flux N*Vi* J*dx*dz
-        // Since Vi increases into the sheath, density should drop
-        Nout =
-            Ne(r.ind, mesh->yend, jz) * coord->J(r.ind, mesh->yend) *
-            Vi(r.ind, mesh->yend, jz) /
-            (0.5 *
-             (coord->J(r.ind, mesh->yend) + coord->J(r.ind, mesh->yend + 1)) *
-             Vout);
-        break;
-      }
-      default:
-        throw BoutException("Unrecognised density_sheath option");
-      }
-
-      if (Nout < 0.0)
-        Nout = 0.0; // Prevent Nout from going negative -> Flux is always to the
-                    // wall
-
-      // Flux of particles is Ne*Vout
-      BoutReal flux = Nout * Vout;
-
-      BoutReal Pout;
-
-      switch (pressure_sheath) {
-      case 0: {
-        // Free boundary  (constant gradient)
-        Pout = 0.5 *
-               (3. * P(r.ind, mesh->yend, jz) - P(r.ind, mesh->yend - 1, jz));
-        break;
-      }
-      case 1: {
-        // Zero gradient
-        Pout = P(r.ind, mesh->yend, jz);
-        break;
-      }
-      case 2: {
-        // Use energy flux conservation to set pressure
-        // (5/2)Pv + (1/2)nv^3 = const
-        //
-        Pout =
-            ((5. * P(r.ind, mesh->yend, jz) * Vi(r.ind, mesh->yend, jz) +
-              Ne(r.ind, mesh->yend, jz) * pow(Vi(r.ind, mesh->yend, jz), 3)) /
-                 Vout -
-             Nout * Vout * Vout) /
-            5.;
-        break;
-      }
-      default:
-        throw BoutException("Unrecognised pressure_sheath option");
-      }
-
-      if (Pout < 0.0)
-        Pout = 0.0;
-
-      if (rhs_explicit) {
-        // Additional cooling
-        BoutReal q = (sheath_gamma - 6) * Te(r.ind, mesh->yend, jz) * flux;
-
-        // Multiply by cell area to get power
-        BoutReal heatflux =
-            q *
-            (coord->J(r.ind, mesh->yend) + coord->J(r.ind, mesh->yend + 1)) /
-            (sqrt(coord->g_22(r.ind, mesh->yend)) +
-             sqrt(coord->g_22(r.ind, mesh->yend + 1)));
-
-        // Divide by volume of cell, and 2/3 to get pressure
-        ddt(P)(r.ind, mesh->yend, jz) -=
-            (2. / 3) * heatflux /
-            (coord->dy(r.ind, mesh->yend) * coord->J(r.ind, mesh->yend));
-      }
-
       // Set boundary half-way between cells
       for (int jy = mesh->yend + 1; jy < mesh->LocalNy; jy++) {
-
-        ///// Plasma model
-
-        // Vi fixed value (Dirichlet)
-        Vi(r.ind, jy, jz) = 2. * Vout - Vi(r.ind, mesh->yend, jz);
-
-        // Ne set from flux (Dirichlet)
-        Ne(r.ind, jy, jz) = 2 * Nout - Ne(r.ind, mesh->yend, jz);
-
-        // NVi. This can be negative, so set this to the flux
-        // going out of the domain (zero gradient)
-        NVi(r.ind, jy, jz) = Nout * Vout;
-        // NVi(r.ind, jy, jz) = Ne(r.ind, jy, jz)  * Vi(r.ind, jy, jz);
-        // NVi(r.ind, jy, jz) = 2.*Nout * Vout - NVi(r.ind, mesh->yend, jz);
-
-        // Te zero gradient (Neumann)
-        Te(r.ind, jy, jz) = Te(r.ind, mesh->yend, jz);
-
-        P(r.ind, jy, jz) = 2. * Pout - P(r.ind, mesh->yend, jz);
-
+        
         if (atomic) {
           ///// Neutral model
           // Flux of neutral particles, momentum, and energy are set later
@@ -729,18 +613,12 @@ protected:
       }
     }
 
-    for (RangeIterator r = mesh->iterateBndryLowerY(); !r.isDone(); r++) {
-      // No-flow boundary condition on left boundary
-
-      for (int jz = 0; jz < mesh->LocalNz; jz++) {
-        for (int jy = 0; jy < mesh->ystart; jy++) {
-          Te(r.ind, jy, jz) = Te(r.ind, mesh->ystart, jz);
-          Ne(r.ind, jy, jz) = Ne(r.ind, mesh->ystart, jz);
-          P(r.ind, jy, jz) = P(r.ind, mesh->ystart, jz);
-          Vi(r.ind, jy, jz) = -Vi(r.ind, mesh->ystart, jz);
-          NVi(r.ind, jy, jz) = -NVi(r.ind, mesh->ystart, jz);
-
-          if (atomic) {
+    if (atomic) {
+      for (RangeIterator r = mesh->iterateBndryLowerY(); !r.isDone(); r++) {
+        // No-flow boundary condition on left boundary
+        
+        for (int jz = 0; jz < mesh->LocalNz; jz++) {
+          for (int jy = 0; jy < mesh->ystart; jy++) {
             Vn(r.ind, jy, jz) = -Vn(r.ind, mesh->ystart, jz);
             Nn(r.ind, jy, jz) = Nn(r.ind, jy, jz);
             Pn(r.ind, jy, jz) = Pn(r.ind, jy, jz);
@@ -893,122 +771,13 @@ protected:
     }
 
     ///////////////////////////////////////////////////
-    // Plasma model
-
+    // electron model
+    
     {
-      /// Density
+      TRACE("Electron pressure");
+      
 
-      TRACE("ddt(Ne)");
-
-      if (rhs_explicit) {
-        // Advection and source terms, usually treated explicitly
-
-        Field3D a = sqrt(gamma_sound * 2. * Te); // Local sound speed
-        ddt(Ne) = -Div_par_FV_FS(Ne, Vi, a, bndry_flux_fix); // Mass flow
-        
-        if (volume_source) {
-          ddt(Ne) += NeSource; // External volume source
-        }
-
-      } else {
-        ddt(Ne) = 0.0;
-      }
-
-      if (rhs_implicit) {
-        // Diffusive terms which are usually treated implicitly
-
-        if (anomalous_D > 0.0) {
-          ddt(Ne) += Div_par_diffusion(anomalous_D, Ne);
-        }
-
-        if (hyper > 0.0) {
-          ddt(Ne) += D(Ne, hyper);
-        }
-
-        if (rhs_implicit) {
-          ddt(Ne) += ADpar * AddedDissipation(1.0, P, Ne, true);
-        }
-      }
-    }
-
-    {
-      /// Momentum
-      TRACE("ddt(NVi)");
-
-      if (rhs_explicit) {
-        // Flux splitting with upwinding
-        Field3D a = sqrt(gamma_sound * 2. * Te); // Local sound speed
-        ddt(NVi) = -Div_par_FV_FS(NVi, Vi, a, bndry_flux_fix) // Momentum flow
-                   - Grad_par(P);
-
-      } else {
-        ddt(NVi) = 0.0;
-      }
-
-      if (rhs_implicit) {
-        if (viscos > 0.) {
-          ddt(NVi) += viscos * Div_par_diffusion_index(Vi);
-        }
-
-        if (anomalous_D > 0.0) {
-          ddt(NVi) += Div_par_diffusion(anomalous_D * Vi, Ne);
-        }
-
-        if (hyper > 0.0) {
-          ddt(NVi) += D(NVi, hyper);
-        }
-
-        if (ADpar > 0.0) {
-          ddt(NVi) += ADpar * AddedDissipation(1.0, P, NVi, true);
-        }
-      }
-
-      if (ion_viscosity) {
-        // Braginskii ion viscosity
-        if (rhs_explicit) {
-          // Update viscosity
-
-          Field3D tau_i = sqrt(2 * mi_me) * tau_e;
-          eta_i = (4. / 3) * 0.96 * Ne * tau_i * Te; // Ti = Te
-          eta_i.applyBoundary("neumann");
-        }
-        if (rhs_implicit) {
-          ddt(NVi) += Div_par_diffusion(eta_i, Vi);
-        }
-      }
-    }
-
-    {
-      /// Pressure
-
-      TRACE("ddt(P)");
-
-      if (rhs_explicit) {
-        // Note: ddt(P) set earlier for sheath
-
-        Field3D a = sqrt(gamma_sound * 2. * Te);           // Local sound speed
-        ddt(P) += -Div_par_FV_FS(P, Vi, a, bndry_flux_fix) // Advection
-                  - (2. / 3) * P * Div_par(Vi)             // Compression
-            ;
-        
-        if (volume_source) {
-          // Volumetric source
-
-          ddt(P) += PeSource; // External source of energy
-        } else {
-          // Insert power into the first grid point
-          for (RangeIterator r = mesh->iterateBndryLowerY(); !r.isDone(); r++)
-            for (int jz = 0; jz < mesh->LocalNz; jz++) {
-              ddt(P)(r.ind, mesh->ystart, jz) +=
-                  (2. / 3) * powerflux /
-                  (coord->dy(r.ind, mesh->ystart) *
-                   sqrt(coord->g_22(r.ind, mesh->ystart)));
-            }
-        }
-      }
-
-      if (rhs_implicit) {
-        if (heat_conduction) {
+      if (heat_conduction) {
           ddt(P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, Te);
         }
         if (anomalous_D > 0.0) {
