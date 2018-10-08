@@ -1,38 +1,104 @@
 
 #include "species.hxx"
+#include "bout/constants.hxx"
 #include "div_ops.hxx"
+#include "field_factory.hxx"
 
 FluidSpecies::FluidSpecies(std::string name, Options *opt, Solver *solver,
-                           bool restarting,
-                           BoutReal Nnorm, BoutReal Tnorm,
-                           BoutReal Omega_ci, BoutReal Cs0)
-  : name(name), Nnorm(Nnorm), Tnorm(Tnorm), Omega_ci(Omega_ci), Cs0(Cs0) {
-  
+                           Datafile &restart, bool restarting, BoutReal Nnorm,
+                           BoutReal Tnorm, BoutReal Omega_ci, BoutReal Cs0)
+    : name(name), Nnorm(Nnorm), Tnorm(Tnorm), Omega_ci(Omega_ci), Cs0(Cs0) {
+
+  OPTION(opt, AA, 2.0); // Ion mass
+  OPTION(opt, ZZ, 1.0); // Ion charge
+
+  BoutReal rho_s0 = Cs0 / Omega_ci;
+
   OPTION(opt, gamma_sound, 5. / 3); // Ratio of specific heats
   OPTION(opt, bndry_flux_fix, false);
 
   // Sheath boundary
-  OPTION(opt, density_sheath, 0);   // Free boundary
-  OPTION(opt, pressure_sheath, 0);  // Free boundary
-  OPTION(opt, sheath_gamma, 6.5);   // Sheath heat transmission
+  OPTION(opt, density_sheath, 0);  // Free boundary
+  OPTION(opt, pressure_sheath, 0); // Free boundary
+  OPTION(opt, sheath_gamma, 6.5);  // Sheath heat transmission
 
   // Plasma anomalous transport
-  OPTION(opt, anomalous_D, -1);
-  OPTION(opt, anomalous_chi, -1);
-  
-  OPTION(opt, viscos, -1);            // Parallel viscosity
-  
-  OPTION(opt, ion_viscosity, false);  // Braginskii parallel viscosity
+  OPTION(opt, anomalous_D, -1);   // Input in m^2/s
+  OPTION(opt, anomalous_chi, -1); // Input in m^2/s
+
+  // Anomalous transport
+  if (anomalous_D > 0.0) {
+    // Normalise
+    anomalous_D /= rho_s0 * rho_s0 * Omega_ci; // m^2/s
+    output.write("\tnormalised anomalous D_perp = %e\n", anomalous_D);
+  }
+  if (anomalous_chi > 0.0) {
+    // Normalise
+    anomalous_chi /= rho_s0 * rho_s0 * Omega_ci; // m^2/s
+    output.write("\tnormalised anomalous chi_perp = %e\n", anomalous_chi);
+  }
+
+  OPTION(opt, viscos, -1);           // Parallel viscosity
+  OPTION(opt, ion_viscosity, false); // Braginskii parallel viscosity
 
   BoutReal Coulomb = 6.6 - 0.5 * log(Nnorm * 1e-20) + 1.5 * log(Tnorm);
   tau_e0 = 1. / (2.91e-6 * (Nnorm / 1e6) * Coulomb * pow(Tnorm, -3. / 2));
-  
+
   solver->add(N, ("N" + name).c_str());
   solver->add(P, ("P" + name).c_str());
   solver->add(NV, ("NV" + name).c_str());
+
+  // Volume sources of particles and energy
+
+  string source_string;
+  FieldFactory ffact(mesh);
+
+  Options *optne = Options::getRoot()->getSection("Ne");
+  optne->get("source", source_string, "0.0");
+  NeSource = ffact.create2D(source_string, optne);
+
+  Options *optpe = Options::getRoot()->getSection("P");
+  optpe->get("source", source_string, "0.0");
+  PeSource = ffact.create2D(source_string, optpe);
+  SAVE_ONCE(PeSource);
+
+  // Normalise sources
+  NeSource /= Nnorm * Omega_ci;
+  PeSource /= SI::qe * Nnorm * Tnorm * Omega_ci;
+
+  // Density controller
+  OPTION(opt, density_upstream, -1); // Fix upstream density? [m^-3]
+  if (density_upstream > 0.0) {
+    // Fixing density
+    density_upstream /= Nnorm;
+
+    // Controller
+    OPTION(opt, density_controller_p, 1e-2);
+    OPTION(opt, density_controller_i, 1e-3);
+    OPTION(opt, density_integral_positive, false);
+    OPTION(opt, density_source_positive, true);
+
+    density_error_lasttime = -1.0; // Signal no value
+
+    // Save and load error integral from file, since
+    // this determines the source function
+    restart.add(density_error_integral, "density_error_integral");
+
+    if (!restarting) {
+      density_error_integral = 0.0;
+
+      // Set density_error_integral so that
+      // the input source is used
+      density_error_integral = 1. / density_controller_i;
+    }
+    SAVE_REPEAT(NeSource);
+    NeSource0 = NeSource; // Save initial value
+  } else {
+    SAVE_ONCE(NeSource);
+  }
 }
 
-void FluidSpecies::evolve(BoutReal UNUSED(time)) {
+void FluidSpecies::evolve(BoutReal time) {
   TRACE("Species::evolve");
 
   // Communicate evolving variables
@@ -46,9 +112,12 @@ void FluidSpecies::evolve(BoutReal UNUSED(time)) {
 
   Field3D Nlim = floor(N, 1e-5);
 
-  V = NV / N; // Velocity
-  T = P / N;  // Temperature
-  
+  V = NV / (AA * N); // Velocity. Note atomic mass factor AA
+  T = P / N;         // Temperature
+
+  /////////////////////////////////////////////////////
+  // Boundaries
+
   {
     TRACE("Upper Y boundary (sheath)");
 
@@ -92,11 +161,11 @@ void FluidSpecies::evolve(BoutReal UNUSED(time)) {
       default:
         throw BoutException("Unrecognised density_sheath option");
       }
-      
+
       // Prevent Nout from going negative
       // -> Flux is always to the wall
       if (Nout < 0.0)
-        Nout = 0.0; 
+        Nout = 0.0;
 
       // Flux of particles is Ne*Vout
       BoutReal flux = Nout * Vout;
@@ -119,12 +188,11 @@ void FluidSpecies::evolve(BoutReal UNUSED(time)) {
         // Use energy flux conservation to set pressure
         // (5/2)Pv + (1/2)nv^3 = const
         //
-        Pout =
-            ((5. * P(r.ind, mesh->yend, jz) * V(r.ind, mesh->yend, jz) +
-              N(r.ind, mesh->yend, jz) * pow(V(r.ind, mesh->yend, jz), 3)) /
-                 Vout -
-             Nout * Vout * Vout) /
-            5.;
+        Pout = ((5. * P(r.ind, mesh->yend, jz) * V(r.ind, mesh->yend, jz) +
+                 N(r.ind, mesh->yend, jz) * pow(V(r.ind, mesh->yend, jz), 3)) /
+                    Vout -
+                Nout * Vout * Vout) /
+               5.;
         break;
       }
       default:
@@ -134,26 +202,23 @@ void FluidSpecies::evolve(BoutReal UNUSED(time)) {
       if (Pout < 0.0)
         Pout = 0.0;
 
-      
       // Additional cooling
       BoutReal q = (sheath_gamma - 6) * T(r.ind, mesh->yend, jz) * flux;
-      
+
       // Multiply by cell area to get power
       BoutReal heatflux =
-        q *
-        (coord->J(r.ind, mesh->yend) + coord->J(r.ind, mesh->yend + 1)) /
-        (sqrt(coord->g_22(r.ind, mesh->yend)) +
-         sqrt(coord->g_22(r.ind, mesh->yend + 1)));
-      
+          q * (coord->J(r.ind, mesh->yend) + coord->J(r.ind, mesh->yend + 1)) /
+          (sqrt(coord->g_22(r.ind, mesh->yend)) +
+           sqrt(coord->g_22(r.ind, mesh->yend + 1)));
+
       // Divide by volume of cell, and 2/3 to get pressure
       ddt(P)(r.ind, mesh->yend, jz) -=
-        (2. / 3) * heatflux /
-        (coord->dy(r.ind, mesh->yend) * coord->J(r.ind, mesh->yend));
-      
-      
+          (2. / 3) * heatflux /
+          (coord->dy(r.ind, mesh->yend) * coord->J(r.ind, mesh->yend));
+
       // Set boundary half-way between cells
       for (int jy = mesh->yend + 1; jy < mesh->LocalNy; jy++) {
-        
+
         // velocity
         V(r.ind, jy, jz) = 2. * Vout - V(r.ind, mesh->yend, jz);
 
@@ -163,7 +228,7 @@ void FluidSpecies::evolve(BoutReal UNUSED(time)) {
         // NV. This can be negative, so set this to the flux
         // going out of the domain (zero gradient)
         NV(r.ind, jy, jz) = Nout * Vout;
-        
+
         // temperature zero gradient (Neumann)
         T(r.ind, jy, jz) = T(r.ind, mesh->yend, jz);
 
@@ -188,6 +253,63 @@ void FluidSpecies::evolve(BoutReal UNUSED(time)) {
     }
   }
 
+  /////////////////////////////////////////////////////
+  // Sources
+  if (density_upstream > 0.0) {
+
+    TRACE("Density upstream");
+
+    BoutReal source;
+    for (RangeIterator r = mesh->iterateBndryLowerY(); !r.isDone(); r++) {
+      int jz = 0;
+
+      // Density source, so dn/dt = source
+      BoutReal error = density_upstream - N(r.ind, mesh->ystart, jz);
+
+      ASSERT2(finite(error));
+      ASSERT2(finite(density_error_integral));
+
+      // PI controller, using crude integral of the error
+      if (density_error_lasttime < 0.0) {
+        // First time
+        density_error_lasttime = time;
+        density_error_last = error;
+      }
+
+      // Integrate using Trapezium rule
+      if (time > density_error_lasttime) { // Since time can decrease
+        density_error_integral += (time - density_error_lasttime) * 0.5 *
+                                  (error + density_error_last);
+      }
+
+      if ((density_error_integral < 0.0) && density_integral_positive) {
+        // Limit density_error_integral to be >= 0
+        density_error_integral = 0.0;
+      }
+
+      // Calculate source from combination of error and integral
+      source = density_controller_p * error +
+               density_controller_i * density_error_integral;
+
+      density_error_last = error;
+      density_error_lasttime = time;
+    }
+
+    if ((source < 0.0) && density_source_positive) {
+      source = 0.0; // Don't remove particles
+    }
+
+    // Broadcast the value of source from processor 0
+    MPI_Bcast(&source, 1, MPI_DOUBLE, 0, BoutComm::get());
+    ASSERT2(finite(source));
+
+    // Scale NeSource
+    NeSource = source * NeSource0;
+  }
+
+  /////////////////////////////////////////////////////
+  // Density
+
   Field3D a = sqrt(gamma_sound * T); // Local sound speed
 
   {
@@ -195,47 +317,54 @@ void FluidSpecies::evolve(BoutReal UNUSED(time)) {
 
     ddt(N) = -Div_par_FV_FS(N, V, a, bndry_flux_fix);
 
-    if (volume_source) {
-      ddt(Ne) += NeSource; // External volume source
-    }
+    ddt(N) += NeSource; // External volume source
 
     if (anomalous_D > 0.0) {
-      ddt(Ne) += Div_par_diffusion(anomalous_D, Ne);
+      ddt(N) += Div_par_diffusion(anomalous_D, N);
     }
   }
+
+  /////////////////////////////////////////////////////
+  // Momentum
+
   {
     TRACE("Momentum");
     ddt(NV) = -Div_par_FV_FS(NV, V, a, bndry_flux_fix) // Momentum flow
               - Grad_par(P);
 
     if (viscos > 0.) {
-      ddt(NVi) += viscos * Div_par_diffusion_index(Vi);
+      ddt(NV) += viscos * Div_par_diffusion_index(V);
     }
-    
+
     if (anomalous_D > 0.0) {
-      ddt(NVi) += Div_par_diffusion(anomalous_D * Vi, Ne);
+      ddt(NV) += Div_par_diffusion(anomalous_D * V, N);
     }
-    
+
     if (ion_viscosity) {
       // Braginskii ion viscosity
+      BoutReal mi_me = SI::Mp / SI::Me;
       Field3D tau_i = sqrt(2 * mi_me) * Omega_ci * tau_e0 * pow(T, 1.5) / N;
       eta_i = (4. / 3) * 0.96 * N * tau_i * T;
       eta_i.applyBoundary("neumann");
 
-      ddt(NVi) += Div_par_diffusion(eta_i, Vi);
+      ddt(NV) += Div_par_diffusion(eta_i, V);
     }
   }
+
+  /////////////////////////////////////////////////////
+  // Pressure
+
   {
     TRACE("Pressure");
 
     // Note: ddt(P) set earlier for sheath
     ddt(P) += -Div_par_FV_FS(P, V, a, bndry_flux_fix) // Advection
-             - (2. / 3) * P * Div_par(V)             // Compression
-      ;
-    
+              - (2. / 3) * P * Div_par(V)             // Compression
+        ;
+
     // External source of energy
     ddt(P) += PeSource;
-    
+
     // if (heat_conduction) {
     //   ddt(P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, Te);
     // }
@@ -243,11 +372,10 @@ void FluidSpecies::evolve(BoutReal UNUSED(time)) {
     if (anomalous_D > 0.0) {
       ddt(P) += Div_par_diffusion(anomalous_D * T, N);
     }
-    
+
     if (anomalous_chi > 0.0) {
       ddt(P) += Div_par_diffusion(anomalous_chi, T);
     }
-    
   }
 
   // Switch off evolution at very low densities

@@ -39,7 +39,7 @@
 #include <bout/constants.hxx>
 #include <bout/physicsmodel.hxx>
 #include <derivs.hxx>
-#include <field_factory.hxx>
+#include "field_factory.hxx"
 #include <invert_parderiv.hxx>
 #include "unused.hxx"
 
@@ -54,14 +54,11 @@ protected:
   int init(bool restarting) {
     Options *opt = Options::getRoot()->getSection("sd1d");
 
-    OPTION(opt, cfl_info, false); // Calculate and print CFL information
-
     // Normalisation
     OPTION(opt, Tnorm, 100);             // Reference temperature [eV]
     OPTION(opt, Nnorm, 1e19);            // Reference density [m^-3]
     OPTION(opt, Bnorm, 1.0);             // Reference magnetic field [T]
-    OPTION(opt, AA, 2.0);                // Ion mass
-    SAVE_ONCE4(Tnorm, Nnorm, Bnorm, AA); // Save normalisations
+    SAVE_ONCE3(Tnorm, Nnorm, Bnorm);      // Save normalisations
 
     // Model parameters
     OPTION(opt, vwall, 1. / 3); // 1/3rd Franck-Condon energy at wall
@@ -75,10 +72,6 @@ protected:
     OPTION(opt, nloss, 0.0);          // Neutral gas loss rate
     OPTION(opt, sheath_gamma, 6.5);   // Sheath heat transmission
     OPTION(opt, neutral_gamma, 0.25); // Neutral heat transmission
-
-    // Plasma anomalous transport
-    OPTION(opt, anomalous_D, -1);
-    OPTION(opt, anomalous_chi, -1);
 
     if (sheath_gamma < 6)
       throw BoutException("sheath_gamma < 6 not consistent");
@@ -150,103 +143,37 @@ protected:
     FieldFactory ffact(mesh);
 
     // Calculate normalisation factors
-
-    Cs0 = sqrt(SI::qe * Tnorm / (AA * SI::Mp)); // Reference sound speed [m/s]
-    Omega_ci = SI::qe * Bnorm / (AA * SI::Mp);  // Ion cyclotron frequency [1/s]
+    // Note: These are calculated for Hydrogen, with
+    // factors of atomic mass and charge included in the equations
+    
+    Cs0 = sqrt(SI::qe * Tnorm / SI::Mp); // Reference sound speed [m/s]
+    Omega_ci = SI::qe * Bnorm / SI::Mp;  // Ion cyclotron frequency [1/s]
     rho_s0 = Cs0 / Omega_ci;                    // Length scale [m]
 
-    mi_me = AA * SI::Mp / SI::Me;
+    mi_me = SI::Mp / SI::Me;
 
     BoutReal Coulomb = 6.6 - 0.5 * log(Nnorm * 1e-20) + 1.5 * log(Tnorm);
     tau_e0 = 1. / (2.91e-6 * (Nnorm / 1e6) * Coulomb * pow(Tnorm, -3. / 2));
 
     // Save normalisation factors
     SAVE_ONCE5(Cs0, Omega_ci, rho_s0, tau_e0, mi_me);
-
-    OPTION(opt, volume_source, true);
-    if (volume_source) {
-      // Volume sources of particles and energy
-
-      string source_string;
-
-      Options *optne = Options::getRoot()->getSection("Ne");
-      optne->get("source", source_string, "0.0");
-      NeSource = ffact.create2D(source_string, optne);
-      // SAVE_ONCE(NeSource);
-
-      Options *optpe = Options::getRoot()->getSection("P");
-      optpe->get("source", source_string, "0.0");
-      PeSource = ffact.create2D(source_string, optpe);
-      SAVE_ONCE(PeSource);
-
-      // Normalise sources
-      NeSource /= Nnorm * Omega_ci;
-      PeSource /= SI::qe * Nnorm * Tnorm * Omega_ci;
-    } else {
-      // Point sources, fixing density and specifying energy flux
-
-      Options *optpe = Options::getRoot()->getSection("P");
-      OPTION(optpe, powerflux, 2e7); // Power flux in W/m^2
-      powerflux /=
-          rho_s0 * SI::qe * Tnorm * Nnorm * Omega_ci; // Normalised energy flux
-    }
-
-    /////////////////////////
-    // Density controller
-    OPTION(opt, density_upstream, -1); // Fix upstream density? [m^-3]
-    if (density_upstream > 0.0) {
-      // Fixing density
-      density_upstream /= Nnorm;
-
-      // Controller
-      OPTION(opt, density_controller_p, 1e-2);
-      OPTION(opt, density_controller_i, 1e-3);
-      OPTION(opt, density_integral_positive, false);
-      OPTION(opt, density_source_positive, true);
-
-      density_error_lasttime = -1.0; // Signal no value
-
-      // Save and load error integral from file, since
-      // this determines the source function
-      restart.add(density_error_integral, "density_error_integral");
-
-      if (!restarting) {
-        density_error_integral = 0.0;
-
-        if (volume_source) {
-          // Set density_error_integral so that
-          // the input source is used
-          density_error_integral = 1. / density_controller_i;
-        }
-      }
-    }
-
-    if (volume_source) {
-      if (density_upstream > 0.0) {
-        // Evolving NeSource
-        SAVE_REPEAT(NeSource);
-
-        NeSource0 = NeSource; // Save initial value
-      } else {
-        // Fixed NeSource
-        SAVE_ONCE(NeSource);
-      }
-    }
-
+    
     nloss /= Omega_ci;
-
-    // Specify variables to evolve
-    // solver->add(Ne, "Ne");
-    // solver->add(NVi, "NVi");
-    // solver->add(P, "P");
 
     // Electrons are handled differently,
     // so not an evolving species
-    species["e"] = new Species(); 
+    species["e"] = new Species(SI::Me / SI::Mp, -1);
+
+    // Save some electron properties
+    auto &electrons = *species["e"];
+    dump.addRepeat(electrons.N, "Ne");
+    dump.addRepeat(electrons.T, "Te");
+    
     // Hydrogen ions, evolving
     species["h+"] = new FluidSpecies("h+",
                                      opt,
                                      solver,
+                                     restart,
                                      restarting,
                                      Nnorm, Tnorm, Omega_ci, Cs0); 
     
@@ -315,12 +242,7 @@ protected:
           SAVE_REPEAT(Vn);
         }
       }
-
-      SAVE_REPEAT(Vi);
     }
-
-    if (ion_viscosity)
-      SAVE_REPEAT(eta_i);
 
     kappa_epar = 0.0;
     
@@ -329,18 +251,6 @@ protected:
     // Neutral gas diffusion and heat conduction
     Dn = 0.0;
     kappa_n = 0.0;
-
-    // Anomalous transport
-    if (anomalous_D > 0.0) {
-      // Normalise
-      anomalous_D /= rho_s0 * rho_s0 * Omega_ci; // m^2/s
-      output.write("\tnormalised anomalous D_perp = %e\n", anomalous_D);
-    }
-    if (anomalous_chi > 0.0) {
-      // Normalise
-      anomalous_chi /= rho_s0 * rho_s0 * Omega_ci; // m^2/s
-      output.write("\tnormalised anomalous chi_perp = %e\n", anomalous_chi);
-    }
 
     // Calculate neutral gas redistribution weights over the domain
     string redist_string;
@@ -426,25 +336,15 @@ protected:
 
     // Electrons handled separately
     auto &ions = *species.at("h+");
-
-    Field3D Te = ions.T;
-    Ne = ions.N;
-
-    P = 2. * ions.P; // Total pressure
-    
-    NVi = ions.NV;
-    Vi = ions.V;
     
     Coordinates *coord = mesh->coordinates();
     
-    Field3D Nelim = floor(Ne, 1e-5);
-    
     // Set electron species properties
     auto &electrons = *species.at("e");
-    electrons.T = Te;
-    electrons.N = Ne;
-    electrons.P = 0.5 * P;
-    electrons.V = Vi;
+    electrons.T = ions.T;
+    electrons.N = ions.N * ions.ZZ;
+    electrons.P = ions.P * ions.ZZ;
+    electrons.V = ions.V;
     
     Field3D Nnlim;
     Field3D Tn;
@@ -473,7 +373,7 @@ protected:
         // Tn = floor(Tn, 0.025/Tnorm); // Minimum tn_floor
         Tn = floor(Tn, 1e-12);
       } else {
-        Tn = Te; // Strong CX coupling
+        Tn = ions.T; // Strong CX coupling
         Pn = Tn * floor(Nn, 0.0);
         Tn = floor(Tn, tn_floor / Tnorm); // Minimum of tn_floor
       }
@@ -490,28 +390,30 @@ protected:
       // Update diffusion coefficients
       TRACE("Update coefficients");
 
-      tau_e = Omega_ci * tau_e0 * pow(Te, 1.5) / Ne;
+      tau_e = Omega_ci * tau_e0 * pow(electrons.T, 1.5) / electrons.N;
 
       if (heat_conduction) {
-        kappa_epar = 3.2 * mi_me * 0.5 * P * tau_e;
+        kappa_epar = 3.2 * mi_me * 0.5 * electrons.P * tau_e;
         kappa_epar.applyBoundary("neumann");
       }
 
       if (atomic) {
         // Neutral diffusion rate
 
+        Field3D Nelim = floor(electrons.N, 1e-5);
+        
         for (int i = 0; i < mesh->LocalNx; i++)
           for (int j = 0; j < mesh->LocalNy; j++)
             for (int k = 0; k < mesh->LocalNz; k++) {
               // Charge exchange frequency, normalised to ion cyclotron
               // frequency
               BoutReal sigma_cx = Nelim(i, j, k) * Nnorm *
-                                  hydrogen.chargeExchange(Te(i, j, k) * Tnorm) /
+                                  hydrogen.chargeExchange(ions.T(i, j, k) * Tnorm) /
                                   Omega_ci;
 
               // Ionisation frequency
               BoutReal sigma_iz = Nelim(i, j, k) * Nnorm *
-                                  hydrogen.ionisation(Te(i, j, k) * Tnorm) /
+                                  hydrogen.ionisation(electrons.T(i, j, k) * Tnorm) /
                                   Omega_ci;
 
               // Neutral thermal velocity
@@ -605,7 +507,7 @@ protected:
                   (coord->dy(r.ind, mesh->yend) * coord->J(r.ind, mesh->yend));
             }
           } else {
-            Tn(r.ind, jy, jz) = Te(r.ind, jy, jz);
+            Tn(r.ind, jy, jz) = ions.T(r.ind, jy, jz);
           }
           Pn(r.ind, jy, jz) = Nn(r.ind, jy, jz) * Tn(r.ind, jy, jz);
           NVn(r.ind, jy, jz) = -NVn(r.ind, mesh->yend, jz);
@@ -627,108 +529,14 @@ protected:
         }
       }
     }
-
-    if ((density_upstream > 0.0) && rhs_explicit) {
-      ///////////////////////////////////////////////
-      // Set velocity on left boundary to set density
-      //
-      // This calculates a source needed in the first grid cell, to relax
-      // towards the desired density value.
-      //
-
-      TRACE("Density upstream");
-
-      BoutReal source;
-      for (RangeIterator r = mesh->iterateBndryLowerY(); !r.isDone(); r++) {
-        int jz = 0;
-
-        // Density source, so dn/dt = source
-        BoutReal error = density_upstream - Ne(r.ind, mesh->ystart, jz);
-
-        ASSERT2(finite(error));
-        ASSERT2(finite(density_error_integral));
-
-        // PI controller, using crude integral of the error
-        if (density_error_lasttime < 0.0) {
-          // First time
-          density_error_lasttime = time;
-          density_error_last = error;
-        }
-
-        // Integrate using Trapezium rule
-        if (time > density_error_lasttime) { // Since time can decrease
-          density_error_integral += (time - density_error_lasttime) * 0.5 *
-                                    (error + density_error_last);
-        }
-
-        if ((density_error_integral < 0.0) && density_integral_positive) {
-          // Limit density_error_integral to be >= 0
-          density_error_integral = 0.0;
-        }
-
-        // Calculate source from combination of error and integral
-        source = density_controller_p * error +
-                 density_controller_i * density_error_integral;
-        
-        density_error_last = error;
-        density_error_lasttime = time;
-
-        if (!volume_source) {
-          // Convert source into a flow velocity
-          // through the boundary, based on a zero-gradient boundary on the
-          // density. This ensures that the mass and momentum inputs are
-          // consistent, but also carries energy through the boundary. This flux
-          // of energy is calculated, and subtracted from the pressure equation,
-          // so that the density boundary does not contribute to energy balance.
-
-          // Calculate needed input velocity
-          BoutReal Vin = source * sqrt(coord->g_22(r.ind, mesh->ystart)) *
-                         coord->dy(r.ind, mesh->ystart) /
-                         Ne(r.ind, mesh->ystart, jz);
-
-          // Limit at sound speed
-          BoutReal cs = sqrt(Te(r.ind, mesh->ystart, jz));
-          if (fabs(Vin) > cs) {
-            Vin *= cs / fabs(Vin); // + or - cs
-          }
-          Vi(r.ind, mesh->ystart - 1, jz) =
-              2. * Vin - Vi(r.ind, mesh->ystart, jz);
-
-          // Power flux is v * (5/2 P + 1/2 m n v^2 )
-          BoutReal inputflux = Vin * (2.5 * P(r.ind, mesh->ystart, jz) +
-                                      0.5 * Ne(r.ind, mesh->ystart, jz) * Vin *
-                                          Vin); // W/m^2 (normalised)
-
-          // Subtract input energy flux from P equation
-          // so no net power input
-          ddt(P)(r.ind, mesh->ystart, jz) -=
-              (2. / 3) * inputflux /
-              (coord->dy(r.ind, mesh->ystart) *
-               sqrt(coord->g_22(r.ind, mesh->ystart)));
-        }
-      }
-
-      if (volume_source) {
-        if ((source < 0.0) && density_source_positive) {
-          source = 0.0; // Don't remove particles
-        }
-
-        // Broadcast the value of source from processor 0
-        MPI_Bcast(&source, 1, MPI_DOUBLE, 0, BoutComm::get());
-        ASSERT2(finite(source));
-
-        // Scale NeSource
-        NeSource = source * NeSource0;
-      }
-    }
-
+    
     if (atomic && rhs_explicit) {
       // Atomic physics
       TRACE("Atomic");
       
       if (fimp > 0.0) {
         // Fixed fraction impurity radiation 
-        species.at(impurity_species)->N = fimp * Ne;
+        species.at(impurity_species)->N = fimp * ions.N;
       }
       
       // Calculate reactions
@@ -776,34 +584,14 @@ protected:
     {
       TRACE("Electron pressure");
       
-
       if (heat_conduction) {
-          ddt(P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, Te);
-        }
-        if (anomalous_D > 0.0) {
-          ddt(P) += Div_par_diffusion(anomalous_D * 2. * Te, Ne);
-        }
-        if (anomalous_chi > 0.0) {
-          ddt(P) += Div_par_diffusion(anomalous_chi, Te);
-        }
-        if (hyper > 0.0) {
-          ddt(P) += D(P, hyper);
-        }
-        if (ADpar > 0.0) {
-          ddt(P) += ADpar * AddedDissipation(1.0, P, P, true);
-        }
+        ddt(electrons.P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, electrons.T);
       }
-    }
 
-    // Switch off evolution at very low densities
-    for (auto i : ddt(Ne).region(RGN_NOBNDRY)) {
-      if ((Ne[i] < 1e-5) && (ddt(Ne)[i] < 0.0)) {
-        ddt(Ne)[i] = 0.0;
-        ddt(NVi)[i] = 0.0;
-        ddt(P)[i] = 0.0;
-      }
+      // Electron pressure acts on ions
+      ddt(ions.NV) -= Grad_par(ions.P);
     }
-
+    
     if (atomic) {
       ///////////////////////////////////////////////////
       // Neutrals model
@@ -910,7 +698,7 @@ protected:
         for (auto i : ddt(Nn).region(RGN_NOBNDRY)) {
           if (Nn[i] < 1e-5) {
             // Relax to the plasma temperature
-            ddt(Pn)[i] = -1e-2 * (Pn[i] - Te[i] * Nn[i]);
+            ddt(Pn)[i] = -1e-2 * (Pn[i] - ions.T[i] * Nn[i]);
           }
         }
       }
@@ -924,12 +712,15 @@ protected:
         for (RangeIterator r = mesh->iterateBndryUpperY(); !r.isDone(); r++) {
           int jz = 0; // Z index
           int jy = mesh->yend;
-          // flux_ion = 0.0;
-          flux_ion =
-              0.25 * (Ne(r.ind, jy, jz) + Ne(r.ind, jy + 1, jz)) *
-              (Vi(r.ind, jy, jz) + Vi(r.ind, jy + 1, jz)) *
-              (coord->J(r.ind, jy) + coord->J(r.ind, jy + 1)) /
-              (sqrt(coord->g_22(r.ind, jy)) + sqrt(coord->g_22(r.ind, jy + 1)));
+
+          BoutReal ion_density = 0.5 * (ions.N(r.ind, jy, jz) + ions.N(r.ind, jy + 1, jz));
+          BoutReal ion_velocity = 0.5 * (ions.V(r.ind, jy, jz) + ions.V(r.ind, jy + 1, jz));
+
+          // Ion flux to the target
+          flux_ion = ion_density * ion_velocity *
+            (coord->J(r.ind, jy) + coord->J(r.ind, jy + 1)) /
+            (sqrt(coord->g_22(r.ind, jy)) + sqrt(coord->g_22(r.ind, jy + 1)));
+          
           BoutReal flux_neut = 0.0;
 
           for (int j = mesh->yend + 1; j < mesh->LocalNy; j++) {
@@ -938,7 +729,7 @@ protected:
             flux_neut += ddt(Nn)(r.ind, j, jz) * coord->J(r.ind, j) *
                          coord->dy(r.ind, j);
 
-            ddt(Ne)(r.ind, j, jz) = 0.0;
+            //ddt(Ne)(r.ind, j, jz) = 0.0;
             ddt(Nn)(r.ind, j, jz) = 0.0;
           }
 
@@ -1003,14 +794,13 @@ protected:
       }
     }
 
+    // Equal electron and ion temperatures
+    ddt(ions.P)   += 0.5*ddt(electrons.P);
+    
     // Add reaction sources
     if (atomic && rhs_explicit) {
       // Plasma equations sum electron and ion contributions
       try {
-        ddt(Ne)  += ddt(species.at("e")->N);
-        ddt(NVi) += ddt(species.at("h+")->NV);
-        ddt(P)   += ddt(species.at("e")->P) + ddt(species.at("h+")->P);
-        
         ddt(Nn) += ddt(species.at("h")->N);
         if (evolve_nvn) {
           ddt(NVn) += ddt(species.at("h")->NV);
@@ -1035,38 +825,7 @@ protected:
    * @param[in] delta   Not used here
    */
   int precon(BoutReal UNUSED(t), BoutReal gamma, BoutReal UNUSED(delta)) {
-
-    static InvertPar *inv = NULL;
-    if (!inv) {
-      // Initialise parallel inversion class
-      inv = InvertPar::Create();
-      inv->setCoefA(1.0);
-    }
-    if (heat_conduction) {
-      // Set the coefficient in front of Grad2_par2
-      inv->setCoefB(-(2. / 3) * gamma * kappa_epar);
-      Field3D dT = ddt(P);
-      dT.applyBoundary("neumann");
-      ddt(P) = inv->solve(dT);
-    }
-
-    if (atomic) {
-      if (evolve_pn) {
-        // Neutral pressure
-        inv->setCoefB(-(2. / 3) * gamma * kappa_n);
-        Field3D dT = ddt(Pn);
-        dT.applyBoundary("neumann");
-        ddt(Pn) = inv->solve(dT);
-      }
-
-      if (dneut > 0.0) {
-        inv->setCoefB(-gamma * Dn);
-        Field3D tmp = ddt(Nn);
-        tmp.applyBoundary("neumann");
-        ddt(Nn) = inv->solve(tmp);
-      }
-    }
-
+    
     return 0;
   }
 
@@ -1090,102 +849,17 @@ protected:
     return rhs(t);
   }
 
-  /*!
-   * Monitor output solutions
-   */
-  int outputMonitor(BoutReal UNUSED(simtime), int UNUSED(iter), int UNUSED(NOUT)) {
-
-    static BoutReal maxinvdt_alltime = 0.0; // Max 1/dt over all output times
-
-    ///////////////////////////////////////////////////
-    // Check velocities for CFL information
-
-    if (cfl_info) {
-      // Calculate the maximum velocity, including cell centres
-      // and edges.
-
-      Coordinates *coord = mesh->coordinates();
-
-      BoutReal maxabsvc = 0.0; // Maximum absolute velocity + sound speed
-      BoutReal maxinvdt = 0.0; // Maximum 1/dt
-      for (int j = mesh->ystart; j <= mesh->yend; j++) {
-        BoutReal g = 5. / 3;
-
-        // cell centre
-        BoutReal cs = sqrt(g * P(0, j, 0) / Ne(0, j, 0)); // Sound speed
-
-        BoutReal vcs = abs(Vi(0, j, 0)) + cs;
-        if (vcs > maxabsvc)
-          maxabsvc = vcs;
-
-        BoutReal dl =
-            coord->dy(0, j) * sqrt(coord->g_22(0, j)); // Length of cell
-        if (vcs / dl > maxinvdt)
-          maxinvdt = vcs / dl;
-
-        // cell left
-        BoutReal p = 0.5 * (P(0, j - 1, 0) + P(0, j, 0));
-        BoutReal n = 0.5 * (Ne(0, j - 1, 0) + Ne(0, j, 0));
-        cs = sqrt(g * p / n);
-        vcs = abs(0.5 * (Vi(0, j - 1, 0) + Vi(0, j, 0))) + cs;
-        if (vcs > maxabsvc)
-          maxabsvc = vcs;
-
-        dl = 0.5 * (coord->dy(0, j) * sqrt(coord->g_22(0, j)) +
-                    coord->dy(0, j - 1) * sqrt(coord->g_22(0, j - 1)));
-
-        if (vcs / dl > maxinvdt)
-          maxinvdt = vcs / dl;
-
-        // Cell right
-        p = 0.5 * (P(0, j + 1, 0) + P(0, j, 0));
-        n = 0.5 * (Ne(0, j + 1, 0) + Ne(0, j, 0));
-        cs = sqrt(g * p / n);
-        vcs = abs(0.5 * (Vi(0, j + 1, 0) + Vi(0, j, 0))) + cs;
-        if (vcs > maxabsvc)
-          maxabsvc = vcs;
-
-        dl = 0.5 * (coord->dy(0, j) * sqrt(coord->g_22(0, j)) +
-                    coord->dy(0, j + 1) * sqrt(coord->g_22(0, j + 1)));
-
-        if (vcs / dl > maxinvdt)
-          maxinvdt = vcs / dl;
-      }
-
-      // Get maximum over the domain
-      BoutReal maxabsvc_all;
-      BoutReal maxinvdt_all;
-
-      MPI_Allreduce(&maxabsvc, &maxabsvc_all, 1, MPI_DOUBLE, MPI_MAX,
-                    BoutComm::get());
-      MPI_Allreduce(&maxinvdt, &maxinvdt_all, 1, MPI_DOUBLE, MPI_MAX,
-                    BoutComm::get());
-
-      if (maxinvdt_all > maxinvdt_alltime)
-        maxinvdt_alltime = maxinvdt_all;
-
-      output.write("\nLocal max |v|+cs: %e Global max |v|+cs: %e\n", maxabsvc,
-                   maxabsvc_all);
-      output.write("Local CFL limit: %e Global limit: %e\n", 1. / maxinvdt,
-                   1. / maxinvdt_all);
-      output.write("Minimum global CFL limit %e\n", 1. / maxinvdt_alltime);
-    }
-    return 0;
-  }
-
 private:
-  bool cfl_info; // Print additional information on CFL limits
 
   // Normalisation parameters
-  BoutReal Tnorm, Nnorm, Bnorm, AA;
+  BoutReal Tnorm, Nnorm, Bnorm;
   BoutReal Cs0, Omega_ci, rho_s0, tau_e0, mi_me;
 
   /////////////////////////////////////////////////////////////////
   // Evolving quantities
-  Field3D Ne, NVi, P;  // Plasma (electron) density, momentum, and pressure
   Field3D Nn, NVn, Pn; // Neutral density, momentum, pressure
 
-  Field3D Vi, Vn; // Ion and neutral velocities
+  Field3D Vn; // Ion and neutral velocities
 
   bool evolve_nvn; // Evolve neutral momentum?
   bool evolve_pn;  // Evolve neutral pressure?
@@ -1202,13 +876,10 @@ private:
   Field3D kappa_epar; // Plasma thermal conduction
 
   Field3D tau_e;        // Electron collision time
-  Field3D eta_i;        // Braginskii ion viscosity
   bool ion_viscosity;   // Braginskii ion viscosity on/off
   bool heat_conduction; // Thermal conduction on/off
 
   BoutReal nloss; // Neutral loss rate (1/timescale)
-
-  BoutReal anomalous_D, anomalous_chi; // Anomalous transport
 
   /////////////////////////////////////////////////////////////////
   // Atomic physics transfer channels
@@ -1250,20 +921,9 @@ private:
   // Sources
 
   bool volume_source;         // Include volume sources?
-  Field2D NeSource, PeSource; // Volume sources
-  Field2D NeSource0;          // Used in feedback control
   BoutReal powerflux;         // Used if no volume sources
 
-  // Upstream density controller
-  BoutReal density_upstream; // The desired density at the lower Y (upstream)
-                             // boundary
-  BoutReal density_controller_p, density_controller_i; // Controller settings
-  bool density_integral_positive; // Limit the i term to be positive
-  bool density_source_positive;   // Limit the source to be positive
-
-  BoutReal density_error_lasttime,
-      density_error_last;          // Value and time of last error
-  BoutReal density_error_integral; // Integral of error
+  
 
   ///////////////////////////////////////////////////////////////
   // Numerical dissipation

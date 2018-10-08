@@ -16,20 +16,25 @@
 
 #include <map>
 #include <string>
+#include <cmath>
 
 /// Represents a plasma or neutral species
 /// Can be time evolving, but the default base class
 /// is not evolving.
 class Species {
 public:
-  Species() {}
+  Species() : AA(nan("")), ZZ(nan("")) {}
+  Species(BoutReal AA, BoutReal ZZ) : AA(AA), ZZ(ZZ) {}
   virtual ~Species() {}
+
+  BoutReal AA; // Atomic mass e.g. Deuterium = 2
+  BoutReal ZZ; // Charge e.g. Hydrogen = +1, electron = -1
   
   BoutReal Nnorm, Tnorm, Vnorm; /// Normalisation factors
   
   Field3D N;                    // Density
   Field3D P;                    // Pressure
-  Field3D NV;                   // Momentum
+  Field3D NV;                   // Momentum, includes factor of AA
   
   Field3D T;                    // Temperature
   Field3D V;                    // Velocity
@@ -50,12 +55,11 @@ using SpeciesMap = std::map<std::string, Species*>;
 
 class FluidSpecies : public Species {
 public:
-  FluidSpecies(std::string name,
-               Options *opt,
-               Solver *solver,
-               bool restarting);
-  
-  void evolve(BoutReal UNUSED(time)) override;
+  FluidSpecies(std::string name, Options *opt, Solver *solver,
+               Datafile &restart, bool restarting, BoutReal Nnorm,
+               BoutReal Tnorm, BoutReal Omega_ci, BoutReal Cs0);
+
+  void evolve(BoutReal time) override;
   
 private:
   std::string name;
@@ -76,6 +80,20 @@ private:
 
   BoutReal Nnorm, Tnorm, Omega_ci, Cs0;
   BoutReal tau_e0;
+  
+  Field2D NeSource, PeSource; // Volume sources
+  Field2D NeSource0;          // Used in feedback control
+
+  // Upstream density controller
+  BoutReal density_upstream; // The desired density at the lower Y (upstream)
+                             // boundary
+  BoutReal density_controller_p, density_controller_i; // Controller settings
+  bool density_integral_positive; // Limit the i term to be positive
+  bool density_source_positive;   // Limit the source to be positive
+
+  BoutReal density_error_lasttime,
+      density_error_last;          // Value and time of last error
+  BoutReal density_error_integral; // Integral of error
 };
 
 #endif // __SPECIES_HXX__
