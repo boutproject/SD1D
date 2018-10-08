@@ -2,7 +2,7 @@
 # 
 
 NOUT = 100     # number of output time-steps
-TIMESTEP = 5000.  # time between outputs
+TIMESTEP = 10000.  # time between outputs
 
 MZ = 1     # number of points in z direction (2^n + 1)
 MXG = 0    # No guard cells needed in X
@@ -111,6 +111,10 @@ scale = 0.0
 bndry_all = neumann_o2  # Default boundary condition
                         # Note: Sheath boundary applied in code
 
+[Nh+] # Ion density
+scale = 1
+function = 0.1
+
 [Ne] # Electron density 
 scale = 1
 
@@ -121,11 +125,20 @@ flux = 4e23  # Particles per m^2 per second input
 source = (flux/(mesh:length_xpt))*h(mesh:length_xpt - mesh:ypos)  # Particle input source
                            # as function of normalised y coordinate
 
+[NVh+] # Ion parallel momentum
+scale = 1
+vtarg = 0.3
+function = vtarg * Ne:scale * Ne:function * y / (2*pi)  # Linear from 0 to 0.03 in y
+
 [NVi]  # Parallel ion momentum
 scale = 1
 vtarg = 0.3
 function = vtarg * Ne:scale * Ne:function * y / (2*pi)  # Linear from 0 to 0.03 in y
 bndry_target = dirichlet_o2
+
+[Ph+] # Ion pressure
+scale = 1
+function = 0.05
 
 [P]    # Plasma pressure P = 2 * Ne * T
 scale = 1

@@ -62,6 +62,8 @@ FluidSpecies::FluidSpecies(std::string name, Options *opt, Solver *solver,
   PeSource = ffact.create2D(source_string, optpe);
   SAVE_ONCE(PeSource);
 
+  PeSource *= 0.5; /// <- Note: This is temporary, applies if Te = Ti
+  
   // Normalise sources
   NeSource /= Nnorm * Omega_ci;
   PeSource /= SI::qe * Nnorm * Tnorm * Omega_ci;
@@ -213,6 +215,7 @@ void FluidSpecies::evolve(BoutReal time) {
 
       // Divide by volume of cell, and 2/3 to get pressure
       ddt(P)(r.ind, mesh->yend, jz) -=
+        0.5 * /// <- Because Te = Ti and this is ion only
           (2. / 3) * heatflux /
           (coord->dy(r.ind, mesh->yend) * coord->J(r.ind, mesh->yend));
 
