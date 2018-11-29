@@ -72,7 +72,18 @@ protected:
     OPTION(opt, density_sheath, 0);   // Free boundary
     OPTION(opt, pressure_sheath, 0);  // Free boundary
     OPTION(opt, gaspuff, 0.0);        // Additional gas flux at target
-    OPTION(opt, dneut, 1.0);          // Scale neutral gas diffusion
+    OPTION(opt, include_dneut, true); // Include neutral gas diffusion?
+    if (opt->isSet("dneut")) {
+      // Scale neutral gas diffusion
+      dneut = FieldFactory::get()->create3D("dneut", opt, mesh);
+    } else {
+      dneut = 1.0;
+    }
+    if (min(dneut) < 0.0) {
+      throw BoutException("dneut must be >= 0. Set include_dneut=false to disable\n");
+    }
+    SAVE_ONCE(dneut);
+    
     OPTION(opt, nloss, 0.0);          // Neutral gas loss rate
     OPTION(opt, Eionize, 30);         // Energy loss per ionisation (30eV)
     OPTION(opt, sheath_gamma, 6.5);   // Sheath heat transmission
@@ -223,9 +234,9 @@ protected:
     LoadMetric(rho_s0, Bnorm);
 
     opt->get("area", area_string, "1.0");
-    mesh->coordinates()->J = ffact.create2D(area_string, Options::getRoot());
+    mesh->getCoordinates()->J = ffact.create2D(area_string, Options::getRoot());
 
-    dy4 = SQ(SQ(mesh->coordinates()->dy));
+    dy4 = SQ(SQ(mesh->getCoordinates()->dy));
 
     //////////////////////////////////////////////////
     // Impurities
@@ -330,7 +341,7 @@ protected:
     opt->get("redist_weight", redist_string, "1.0");
     redist_weight = ffact.create2D(redist_string, opt);
     BoutReal localweight = 0.0;
-    Coordinates *coord = mesh->coordinates();
+    Coordinates *coord = mesh->getCoordinates();
     for (int j = mesh->ystart; j <= mesh->yend; j++) {
       localweight += redist_weight(mesh->xstart, j) *
                      coord->J(mesh->xstart, j) * coord->dy(mesh->xstart, j);
@@ -376,7 +387,7 @@ protected:
   int rhs(BoutReal time) {
     // fprintf(stderr, "\rTime: %e", time);
 
-    Coordinates *coord = mesh->coordinates();
+    Coordinates *coord = mesh->getCoordinates();
 
     mesh->communicate(Ne, NVi, P);
 
@@ -473,12 +484,12 @@ protected:
               BoutReal sigma = sigma_cx + sigma_iz + sigma_nn;
 
               // Neutral gas diffusion
-              if (dneut > 0.0) {
-                Dn(i, j, k) = dneut * SQ(vth_n) / sigma;
-              }
+              if (include_dneut) {
+                Dn(i, j, k) = dneut(i, j, k) * SQ(vth_n) / sigma;
 
-              // Neutral gas heat conduction
-              kappa_n(i, j, k) = dneut * Nnlim(i, j, k) * SQ(vth_n) / sigma;
+                // Neutral gas heat conduction
+                kappa_n(i, j, k) = dneut(i, j, k) * Nnlim(i, j, k) * SQ(vth_n) / sigma;
+              }
             }
 
         kappa_n.applyBoundary("Neumann");
@@ -1193,7 +1204,7 @@ protected:
     }
 
     // Switch off evolution at very low densities
-    for (auto i : ddt(Ne).region(RGN_NOBNDRY)) {
+    for (auto i : ddt(Ne).getRegion(RGN_NOBNDRY)) {
       if ((Ne[i] < 1e-5) && (ddt(Ne)[i] < 0.0)) {
         ddt(Ne)[i] = 0.0;
         ddt(NVi)[i] = 0.0;
@@ -1232,7 +1243,7 @@ protected:
       }
 
       if (rhs_implicit) {
-        if (dneut > 0.0) {
+        if (include_dneut) {
           ddt(Nn) += Div_par_diffusion(Dn * Nn, logPn); // Diffusion
         }
       }
@@ -1273,7 +1284,7 @@ protected:
             ddt(NVn) += D(NVn, hyper);
           }
 
-          if (ion_viscosity) {
+          if (ion_viscosity && include_dneut) {
             // Relationship between heat conduction and viscosity for neutral
             // gas Chapman, Cowling "The Mathematical Theory of Non-Uniform
             // Gases", CUP 1952 Ferziger, Kaper "Mathematical Theory of
@@ -1284,8 +1295,9 @@ protected:
             ddt(NVn) += Div_par_diffusion(eta_n, Vn);
           }
 
-          if (dneut > 0.0)
+          if (include_dneut) {
             ddt(NVn) += Div_par_diffusion(NVn * Dn, logPn); // Diffusion
+          }
         }
       }
 
@@ -1310,12 +1322,13 @@ protected:
         }
 
         if (rhs_implicit) {
-          ddt(Pn) += (2. / 3) *
-                     Div_par_diffusion(kappa_n, Tn); // Parallel heat conduction
 
-          if (dneut > 0.0) {
-            ddt(Pn) +=
-                Div_par_diffusion(Dn * Pn, logPn); // Perpendicular diffusion
+          if (include_dneut) {
+            // Perpendicular diffusion
+            ddt(Pn) += Div_par_diffusion(Dn * Pn, logPn);
+
+            // Parallel heat conduction
+            ddt(Pn) += (2. / 3) * Div_par_diffusion(kappa_n, Tn);
           }
         }
 
@@ -1326,7 +1339,7 @@ protected:
         // Switch off evolution at very low densities
         // This seems to be necessary to get through initial transients
 
-        for (auto i : ddt(Nn).region(RGN_NOBNDRY)) {
+        for (auto i : ddt(Nn).getRegion(RGN_NOBNDRY)) {
           if (Nn[i] < 1e-5) {
             // Relax to the plasma temperature
             ddt(Pn)[i] = -1e-2 * (Pn[i] - Te[i] * Nn[i]);
@@ -1469,7 +1482,7 @@ protected:
    * Related to timestep
    * @param[in] delta   Not used here
    */
-  int precon(BoutReal t, BoutReal gamma, BoutReal delta) {
+  int precon(BoutReal UNUSED(t), BoutReal gamma, BoutReal UNUSED(delta)) {
 
     static InvertPar *inv = NULL;
     if (!inv) {
@@ -1486,7 +1499,7 @@ protected:
     }
 
     if (atomic) {
-      if (evolve_pn) {
+      if (evolve_pn && include_dneut) {
         // Neutral pressure
         inv->setCoefB(-(2. / 3) * gamma * kappa_n);
         Field3D dT = ddt(Pn);
@@ -1494,7 +1507,7 @@ protected:
         ddt(Pn) = inv->solve(dT);
       }
 
-      if (dneut > 0.0) {
+      if (include_dneut) {
         inv->setCoefB(-gamma * Dn);
         Field3D tmp = ddt(Nn);
         tmp.applyBoundary("neumann");
@@ -1528,7 +1541,7 @@ protected:
   /*!
    * Monitor output solutions
    */
-  int outputMonitor(BoutReal simtime, int iter, int NOUT) {
+  int outputMonitor(BoutReal UNUSED(simtime), int UNUSED(iter), int UNUSED(NOUT)) {
 
     static BoutReal maxinvdt_alltime = 0.0; // Max 1/dt over all output times
 
@@ -1539,7 +1552,7 @@ protected:
       // Calculate the maximum velocity, including cell centres
       // and edges.
 
-      Coordinates *coord = mesh->coordinates();
+      Coordinates *coord = mesh->getCoordinates();
 
       BoutReal maxabsvc = 0.0; // Maximum absolute velocity + sound speed
       BoutReal maxinvdt = 0.0; // Maximum 1/dt
@@ -1629,7 +1642,8 @@ private:
   // Diffusion and viscosity coefficients
 
   Field3D Dn;     // Neutral gas diffusion
-  BoutReal dneut; // Neutral gas diffusion multiplier
+  bool include_dneut;  // Include neutral gas diffusion?
+  Field3D dneut; // Neutral gas diffusion multiplier
 
   Field3D kappa_n;    // Neutral gas thermal conduction
   Field3D kappa_epar; // Plasma thermal conduction
@@ -1745,10 +1759,10 @@ private:
 
   // Numerical diffusion
   const Field3D D(const Field3D &f, BoutReal d) {
-    if (d < 0.0)
+    if (d < 0.0) {
       return 0.0;
-    return Div_par_diffusion(d * SQ(mesh->coordinates()->dy), f);
-    // return -D4DY4_FV(d*dy4,f);
+    }
+    return Div_par_diffusion(d * SQ(mesh->getCoordinates()->dy), f);
   }
 
   ///////////////////////////////////////////////////////////////
