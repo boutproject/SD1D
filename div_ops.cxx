@@ -36,7 +36,7 @@ const Field3D Div_par_diffusion(const Field3D &K, const Field3D &f, bool bndry_f
   Field3D result;
   result = 0.0;
   
-  Coordinates *coord = mesh->coordinates();
+  Coordinates *coord = mesh->getCoordinates();
   
   for(int i=mesh->xstart;i<=mesh->xend;i++)
     for(int j=mesh->ystart-1;j<=mesh->yend;j++)
@@ -72,7 +72,7 @@ const Field3D Div_par_spitzer(BoutReal K0, const Field3D &Te, bool bndry_flux) {
   Field3D result;
   result = 0.0;
 
-  Coordinates *coord = mesh->coordinates();
+  Coordinates *coord = mesh->getCoordinates();
 
   for(int i=mesh->xstart;i<=mesh->xend;i++)
     for(int j=mesh->ystart-1;j<=mesh->yend;j++)
@@ -107,7 +107,7 @@ const Field3D Div_par_diffusion_upwind(const Field3D &K, const Field3D &f, bool 
   Field3D result;
   result = 0.0;
   
-  Coordinates *coord = mesh->coordinates();
+  Coordinates *coord = mesh->getCoordinates();
 
   for(int i=mesh->xstart;i<=mesh->xend;i++)
     for(int j=mesh->ystart-1;j<=mesh->yend;j++)
@@ -146,7 +146,7 @@ const Field3D Div_par_diffusion_index(const Field3D &f, bool bndry_flux) {
   Field3D result;
   result = 0.0;
   
-  Coordinates *coord = mesh->coordinates();
+  Coordinates *coord = mesh->getCoordinates();
 
   for(int i=mesh->xstart;i<=mesh->xend;i++)
     for(int j=mesh->ystart-1;j<=mesh->yend;j++)
@@ -175,7 +175,7 @@ const Field3D Div_par_diffusion_index(const Field3D &f, bool bndry_flux) {
 const Field3D AddedDissipation(const Field3D &N, const Field3D &P, const Field3D f, bool bndry_flux) {
   Field3D result = 0.0;
   
-  Coordinates *coord = mesh->coordinates();
+  Coordinates *coord = mesh->getCoordinates();
 
   for(int i=mesh->xstart;i<=mesh->xend;i++)
     for(int j=mesh->ystart-1;j<=mesh->yend;j++)
@@ -260,7 +260,7 @@ const Field3D Div_par_FV(const Field3D &f, const Field3D &v) {
   int ys = mesh->ystart-1;
   int ye = mesh->yend+1;
   
-  Coordinates *coord = mesh->coordinates();
+  Coordinates *coord = mesh->getCoordinates();
 
   for(int i=mesh->xstart;i<=mesh->xend;i++)
     for(int j=ys;j<=ye;j++) {
@@ -317,7 +317,7 @@ const Field3D Div_par_FV_FS(const Field3D &f, const Field3D &v, const Field3D &a
   // Finite volume parallel divergence
   Field3D result = 0.0;
 
-  Coordinates *coord = mesh->coordinates();
+  Coordinates *coord = mesh->getCoordinates();
   
   for(int i=mesh->xstart;i<=mesh->xend;i++) {
     
@@ -428,7 +428,7 @@ const Field3D Div_par_FV_FS(const Field3D &f, const Field3D &v, const Field3D &a
 const Field3D Div_par_FV3(const Field3D &f, const Field3D &g, const Field3D &v) { 
   Field3D result = 0.0;
 
-  Coordinates *coord = mesh->coordinates();
+  Coordinates *coord = mesh->getCoordinates();
 
   int ys = mesh->ystart-1;
   int ye = mesh->yend+1;
@@ -496,7 +496,7 @@ const Field3D Div_par_FV3(const Field3D &f, const Field3D &g, const Field3D &v) 
 const Field3D D4DY4_FV(const Field3D &d, const Field3D &f) {
   Field3D result = 0.0;
 
-  Coordinates *coord = mesh->coordinates();
+  Coordinates *coord = mesh->getCoordinates();
 
   for(int i=mesh->xstart;i<=mesh->xend;i++)
     for(int j=mesh->ystart;j<=mesh->yend;j++) {

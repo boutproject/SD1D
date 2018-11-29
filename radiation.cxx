@@ -10,6 +10,8 @@
 #include <string>
 #include <sstream>
 
+using std::string;
+
 const Field3D RadiatedPower::power(const Field3D &Te, const Field3D &Ne, const Field3D &Ni) {
   Field3D result;
   result.allocate();
