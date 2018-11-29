@@ -82,6 +82,7 @@ protected:
     if (min(dneut) < 0.0) {
       throw BoutException("dneut must be >= 0. Set include_dneut=false to disable\n");
     }
+    SAVE_ONCE(dneut);
     
     OPTION(opt, nloss, 0.0);          // Neutral gas loss rate
     OPTION(opt, Eionize, 30);         // Energy loss per ionisation (30eV)
