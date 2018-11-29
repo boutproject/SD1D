@@ -18,13 +18,23 @@ tind = -1
 
 # Evolving variables, remove extra guard cells so just one each side
 p = collect("P", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
-pn = collect("Pn", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
+
+try:
+    pn = collect("Pn", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
+except:
+    pn = zeros(p.shape)
 
 nvi = collect("NVi", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
 ne = collect("Ne", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
-nvn = collect("NVn", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
-nn = collect("Nn", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
-
+try:
+    nvn = collect("NVn", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
+except:
+    nvn = zeros(p.shape)
+try:
+    nn = collect("Nn", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
+except:
+    nn = zeros(p.shape)
+    
 J = collect("J", path=path)[0,:]
 
 # Normalisations
@@ -56,8 +66,12 @@ def replace_guards(var):
     This in-place replaces the points in the guard cells with the points on the boundary
     
     """
-    var[0] = 0.5*(var[0] + var[1])
-    var[-1] = 0.5*(var[-1] + var[-2])
+    try:
+        var[0] = 0.5*(var[0] + var[1])
+        var[-1] = 0.5*(var[-1] + var[-2])
+    except:
+        # Probably a scalar
+        return var
 
 replace_guards(p)
 replace_guards(pn)
@@ -65,7 +79,10 @@ replace_guards(ne)
 replace_guards(nn)
 
 dynamic_p = (nvi**2/ne) * pnorm
-dynamic_n = (nvn**2/nn) * pnorm
+if np.max(nn) > 1e-6:
+    dynamic_n = (nvn**2/nn) * pnorm
+else:
+    dynamic_n = zeros(p.shape)
 
 ########################################
 # Atomic processes
@@ -111,10 +128,10 @@ ax1.plot(pos, p, '-r')
 ax1.plot(pos[0], p[0], 'ob')
 #ax1.annotate(r"$p = %.2e$Pa" % (p[0],), xy=(pos[0], p[0]), textcoords='data')
 
-ax2.plot(pos, pn, '-g')
-ax2.plot(pos[-1], pn[-1], 'og')
-
-#ax2.annotate(r"$p_n = %.2e$Pa" % (pn[-1],), xy=(pos[-1], pn[-1]), textcoords='data')
+if np.max(nn) > 1e-6:
+    ax2.plot(pos, pn, '-g')
+    ax2.plot(pos[-1], pn[-1], 'og')
+    #ax2.annotate(r"$p_n = %.2e$Pa" % (pn[-1],), xy=(pos[-1], pn[-1]), textcoords='data')
 
 fig.savefig(path+"/pressure_balance.pdf")
 fig.savefig(path+"/pressure_balance.png")
@@ -135,10 +152,12 @@ ax1.set_xlabel("Position [m]")
 ax1.set_ylabel("Pressure [Pa]")
 
 ax1.plot(pos, p, '-b', label="Static plasma")
-ax1.plot(pos, pn, '--b', label="Static neutral")
 
 ax1.plot(pos, dynamic_p, '-r', label="Dynamic plasma")
-ax1.plot(pos, dynamic_n, '--r', label="Dynamic neutral")
+
+if np.max(nn) > 1e-6:
+    ax1.plot(pos, pn, '--b', label="Static neutral")
+    ax1.plot(pos, dynamic_n, '--r', label="Dynamic neutral")
 
 ax1.plot(pos, p + pn + dynamic_p + dynamic_n, '-k', label="Total")
 

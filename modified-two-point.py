@@ -44,7 +44,11 @@ def momentum_loss_fraction(path, upstream_index=0, tind=-1):
     p_u = p_u_static + p_u_dynamic
     
     # Read the friction
-    F = collect("F", path=path, yind=[upstream_index,-1], tind=tind).flatten()
+    try:
+        F = collect("F", path=path, yind=[upstream_index,-1], tind=tind).flatten()
+    except:
+        print("No friction force 'F' found")
+        F = 0.0
     
     # Need to integrate along length, so get cell spacing
     dy = collect("dy", path=path, yind=[upstream_index,-1]).flatten()
@@ -69,8 +73,16 @@ def power_loss_fraction(path, upstream_index=0, tind=-1):
     """
     
     # Read the energy exchange with neutrals and radiation
-    E = collect("E", path=path, yind=[upstream_index,-1], tind=tind).flatten()
-    R = collect("R", path=path, yind=[upstream_index,-1], tind=tind).flatten()
+    try:
+        E = collect("E", path=path, yind=[upstream_index,-1], tind=tind).flatten()
+    except:
+        print("Energy loss rate 'E' not found")
+        E = 0.0
+    try:
+        R = collect("R", path=path, yind=[upstream_index,-1], tind=tind).flatten()
+    except:
+        print("Radiation rate 'R' not found")
+        R = 0.0
     
     # Compression term P * Div_par(Vi)
     n = collect("Ne", path=path, yguards=True, tind=tind).flatten()
@@ -129,10 +141,13 @@ if __name__ == "__main__":
     
     upstream_index = args.upstream # Upstream index, at the end of the source region
     if upstream_index is None:
-        # Locate the end of the source
-        pesource = collect("PeSource", path=path).flatten()
-        upstream_index = np.where(pesource < 1e-10)[0][0]  # Return is a tuple, take first element
-        print("Setting upstream index = %d" % upstream_index)
+        try:
+            # Locate the end of the source
+            pesource = collect("PeSource", path=path).flatten()
+            upstream_index = np.where(pesource < 1e-10)[0][0]  # Return is a tuple, take first element
+            print("Setting upstream index = %d" % upstream_index)
+        except:
+            print("Error: Could not locate end of the source region")
     
     # Calculate loss fractions
     f_mom = momentum_loss_fraction(path, upstream_index=upstream_index, tind=tind)
