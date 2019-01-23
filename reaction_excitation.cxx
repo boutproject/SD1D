@@ -29,12 +29,12 @@ public:
     Field3D Ne{elec.N}, Te{elec.T};
     Field3D Nn{atoms.N};
 
-    Coordinates *coord = mesh->coordinates();
+    Coordinates *coord = mesh->getCoordinates();
     
     Rex = 0.0;
     
     CELL_AVERAGE(i,                        // Index variable
-                 Rex.region(RGN_NOBNDRY),  // Index and region (input)
+                 Rex.getRegion(RGN_NOBNDRY),  // Index and region (input)
                  coord,                    // Coordinate system (input)
                  weight,                   // Quadrature weight variable
                  Ne, Nn, Te) {             // Field variables

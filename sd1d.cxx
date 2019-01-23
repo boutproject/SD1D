@@ -139,7 +139,7 @@ protected:
 
     // Read the flux-tube area from input file
     // This goes into the Jacobian.
-    string area_string;
+    std::string area_string;
     FieldFactory ffact(mesh);
 
     // Calculate normalisation factors
@@ -195,9 +195,9 @@ protected:
     LoadMetric(rho_s0, Bnorm);
 
     opt->get("area", area_string, "1.0");
-    mesh->coordinates()->J = ffact.create2D(area_string, Options::getRoot());
+    mesh->getCoordinates()->J = ffact.create2D(area_string, Options::getRoot());
 
-    dy4 = SQ(SQ(mesh->coordinates()->dy));
+    dy4 = SQ(SQ(mesh->getCoordinates()->dy));
 
     //////////////////////////////////////////////////
     // Impurities
@@ -253,11 +253,11 @@ protected:
     kappa_n = 0.0;
 
     // Calculate neutral gas redistribution weights over the domain
-    string redist_string;
+    std::string redist_string;
     opt->get("redist_weight", redist_string, "1.0");
     redist_weight = ffact.create2D(redist_string, opt);
     BoutReal localweight = 0.0;
-    Coordinates *coord = mesh->coordinates();
+    Coordinates *coord = mesh->getCoordinates();
     for (int j = mesh->ystart; j <= mesh->yend; j++) {
       localweight += redist_weight(mesh->xstart, j) *
                      coord->J(mesh->xstart, j) * coord->dy(mesh->xstart, j);
@@ -337,7 +337,7 @@ protected:
     // Electrons handled separately
     auto &ions = *species.at("h+");
     
-    Coordinates *coord = mesh->coordinates();
+    Coordinates *coord = mesh->getCoordinates();
     
     // Set electron species properties
     auto &electrons = *species.at("e");
@@ -695,7 +695,7 @@ protected:
         // Switch off evolution at very low densities
         // This seems to be necessary to get through initial transients
 
-        for (auto i : ddt(Nn).region(RGN_NOBNDRY)) {
+        for (auto i : ddt(Nn).getRegion(RGN_NOBNDRY)) {
           if (Nn[i] < 1e-5) {
             // Relax to the plasma temperature
             ddt(Pn)[i] = -1e-2 * (Pn[i] - ions.T[i] * Nn[i]);
@@ -890,7 +890,7 @@ private:
 
   BoutReal fimp;             // Impurity fraction (of Ne)
   bool impurity_adas;        // True if using Atomic++ library
-  string impurity_species;   // Name of impurity species to use
+  std::string impurity_species;   // Name of impurity species to use
   
   std::vector<Reaction*> reactions; // Reaction set to include
   
@@ -941,7 +941,7 @@ private:
   const Field3D D(const Field3D &f, BoutReal d) {
     if (d < 0.0)
       return 0.0;
-    return Div_par_diffusion(d * SQ(mesh->coordinates()->dy), f);
+    return Div_par_diffusion(d * SQ(mesh->getCoordinates()->dy), f);
     // return -D4DY4_FV(d*dy4,f);
   }
 

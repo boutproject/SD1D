@@ -4,9 +4,9 @@
                           // definitions
 #define IMPURITYSPECIES_H
 
+#include "RateCoefficient.hxx"
 #include <map>
 #include <string>
-#include "RateCoefficient.hxx"
 
 #include <memory>
 
@@ -40,7 +40,8 @@ public:
    * @param json_database_path relative or absolute path to where the json data
    * files from OpenADAS are located
    */
-  void addJSONFiles(const std::string &physics_process, const std::string &filetype_code,
+  void addJSONFiles(const std::string &physics_process,
+                    const std::string &filetype_code,
                     const std::string &json_database_path);
   /**
    * @brief Uses the OpenADAS files determined in addJSONFiles to construct a
@@ -55,7 +56,7 @@ public:
   bool get_has_charge_exchange();
   int get_atomic_number();
   std::map<std::string, std::string> get_adas_files_dict();
-  std::map<std::string, shared_ptr<RateCoefficient>> get_rate_coefficients();
+  std::map<std::string, std::shared_ptr<RateCoefficient>> get_rate_coefficients();
   /**
    * @brief Accesses the value of the rate_coefficient map corresponding
    * to the supplied string key
@@ -63,7 +64,7 @@ public:
    * @param key string corresponding to a physics_process
    * @return shared (smart) pointer to a RateCoefficient object
    */
-  shared_ptr<RateCoefficient> get_rate_coefficient(const std::string &key);
+  std::shared_ptr<RateCoefficient> get_rate_coefficient(const std::string &key);
 
 private:
   // Data fields
@@ -73,7 +74,7 @@ private:
   bool has_charge_exchange;
   int atomic_number;
   std::map<std::string, std::string> adas_files_dict;
-  std::map<std::string, shared_ptr<RateCoefficient>> rate_coefficients;
+  std::map<std::string, std::shared_ptr<RateCoefficient>> rate_coefficients;
 };
 std::string get_json_database_path();
 std::string get_impurity_user_input();

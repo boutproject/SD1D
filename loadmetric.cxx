@@ -29,7 +29,7 @@ void LoadMetric(BoutReal Lnorm, BoutReal Bnorm) {
   Field2D Rxy, Bpxy, Btxy, hthe, sinty;
   GRID_LOAD5(Rxy, Bpxy, Btxy, hthe, sinty); // Load metrics
 
-  Coordinates *coord = mesh->coordinates();
+  Coordinates *coord = mesh->getCoordinates();
   
   // Checking for dpsi and qinty used in BOUT grids
   Field2D dx;

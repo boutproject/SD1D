@@ -68,12 +68,12 @@ public:
 
 /// Values to be used in a quadrature rule (Simpson's)
 struct QuadValue {
-  QuadValue(const Field3D &f, const DataIterator &i) {
+  QuadValue(const Field3D &f, const Ind3D &i) {
     values[0] = f[i];
     values[1] = 0.5 * (f[i.ym()] + values[0]);
     values[2] = 0.5 * (values[0] + f[i.yp()]);
   }
-  QuadValue(const Field2D &f, const DataIterator &i) {
+  QuadValue(const Field2D &f, const Ind2D &i) {
     values[0] = f[i];
     values[1] = 0.5 * (f[i.ym()] + values[0]);
     values[2] = 0.5 * (values[0] + f[i.yp()]);
@@ -86,7 +86,16 @@ struct QuadValue {
 
 /// Simpson's rule weights
 struct QuadRule {
-  QuadRule(Coordinates *coord, const DataIterator &i) {
+  QuadRule(Coordinates *coord, const Ind2D &i) {
+    calculateWeights(coord, i);
+  }
+  
+  QuadRule(Coordinates *coord, const Ind3D &i) {
+    // Map the 3D index to 2D
+    calculateWeights(coord, mesh->map3Dto2D(i));
+  }
+  
+  void calculateWeights(Coordinates *coord, const Ind2D &i) {
     Field2D J = coord->J;
     auto ym = i.ym();
     auto yp = i.yp();
@@ -95,6 +104,7 @@ struct QuadRule {
     weights[1] = 0.5*(J[ym] + J[i]) / (6. * J[i]);
     weights[2] = 0.5*(J[yp] + J[i]) / (6. * J[i]);
   }
+  
   
   std::array<BoutReal,3> weights; // c l r
 

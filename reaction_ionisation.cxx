@@ -45,7 +45,7 @@ public:
       throw BoutException("No 'e' species");
     }
     
-    Coordinates *coord = mesh->coordinates();
+    Coordinates *coord = mesh->getCoordinates();
 
     Riz = 0.0;
     Eiz = 0.0;
@@ -53,7 +53,7 @@ public:
     Siz = 0.0;
     
     CELL_AVERAGE(i,                        // Index variable
-                 Riz.region(RGN_NOBNDRY),  // Index and region (input)
+                 Riz.getRegion(RGN_NOBNDRY),  // Index and region (input)
                  coord,                    // Coordinate system (input)
                  weight,                   // Quadrature weight variable
                  Ne, Nn, Te, Tn, Vn) {     // Field variables

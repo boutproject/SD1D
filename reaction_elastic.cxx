@@ -24,7 +24,7 @@ public:
     OPTION(options, diagnose, false);
     if (diagnose) {
       SAVE_REPEAT2(Fel, Eel);
-    } 
+    }
   }
 
   void updateSpecies(const SpeciesMap &species, BoutReal UNUSED(Tnorm),
@@ -36,7 +36,7 @@ public:
     Field3D Ti, Ni, Vi;
     try {
       const auto &ions = *species.at("h+");
-      
+
       Ti = ions.T;
       Ni = ions.N;
       Vi = ions.V;
@@ -54,18 +54,18 @@ public:
     } catch (const std::out_of_range &e) {
       throw BoutException("No 'h' species");
     }
-    
-    Coordinates *coord = mesh->coordinates();
+
+    Coordinates *coord = mesh->getCoordinates();
 
     Fel = 0.0;
     Eel = 0.0;
-    
+
     CELL_AVERAGE(i,                        // Index variable
-                 Fel.region(RGN_NOBNDRY),  // Index and region (input)
+                 Fel.getRegion(RGN_NOBNDRY),  // Index and region (input)
                  coord,                    // Coordinate system (input)
                  weight,                   // Quadrature weight variable
                  Ti, Ni, Vi, Tn, Nn, Vn) { // Field variables
-      
+
       // Rate (normalised)
       BoutReal R =
           a0 * Ni * Nn * Cs0 * sqrt((16. / PI) * Ti) * Nnorm / Omega_ci;
@@ -80,11 +80,11 @@ public:
 
   SourceMap momentumSources() {
     return {{"h+", -Fel}, // Deuterium (plasma ions)
-            {"h", Fel}}; // Neutral atoms
+            {"h", Fel}};  // Neutral atoms
   }
   SourceMap energySources() {
     return {{"h+", -Eel}, // Deuterium (plasma ions)
-            {"h", Eel}}; // Neutral atoms
+            {"h", Eel}};  // Neutral atoms
   }
 
   std::string str() const { return "Ion-neutral elastic scattering"; }

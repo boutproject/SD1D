@@ -50,7 +50,7 @@ FluidSpecies::FluidSpecies(std::string name, Options *opt, Solver *solver,
 
   // Volume sources of particles and energy
 
-  string source_string;
+  std::string source_string;
   FieldFactory ffact(mesh);
 
   Options *optne = Options::getRoot()->getSection("Ne");
@@ -106,7 +106,7 @@ void FluidSpecies::evolve(BoutReal time) {
   // Communicate evolving variables
   mesh->communicate(N, NV, P);
 
-  Coordinates *coord = mesh->coordinates();
+  Coordinates *coord = mesh->getCoordinates();
 
   // Floor small values
   P = floor(P, 1e-10);
@@ -382,7 +382,7 @@ void FluidSpecies::evolve(BoutReal time) {
   }
 
   // Switch off evolution at very low densities
-  for (auto i : ddt(N).region(RGN_NOBNDRY)) {
+  for (auto i : ddt(N).getRegion(RGN_NOBNDRY)) {
     if ((N[i] < 1e-5) && (ddt(N)[i] < 0.0)) {
       ddt(N)[i] = 0.0;
       ddt(NV)[i] = 0.0;

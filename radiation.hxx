@@ -21,7 +21,7 @@ private:
 
 class InterpRadiatedPower : public RadiatedPower {
 public:
-  InterpRadiatedPower(const string &file);
+  InterpRadiatedPower(const std::string &file);
   
   BoutReal power(BoutReal Te, BoutReal ne, BoutReal ni);
   

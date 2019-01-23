@@ -55,14 +55,14 @@ public:
       throw BoutException("No '%s' species", impurity_species.c_str());
     }
 
-    Coordinates *coord = mesh->coordinates();
+    Coordinates *coord = mesh->getCoordinates();
 
     Rzrad = 0.0;
 
     BoutReal power_norm = 1./(SI::qe * Tnorm * Nnorm * Omega_ci);
     
     CELL_AVERAGE(i,                         // Index variable
-                 Rzrad.region(RGN_NOBNDRY), // Index and region (input)
+                 Rzrad.getRegion(RGN_NOBNDRY), // Index and region (input)
                  coord,                     // Coordinate system (input)
                  weight,                    // Quadrature weight variable
                  Ne, Nz, Nn, Te) {          // Field variables
@@ -87,7 +87,7 @@ public:
 
 private:
   Field3D Rzrad;
-  string impurity_species;
+  std::string impurity_species;
 
   ImpuritySpecies *impurity; // Atomicpp impurity
 };
