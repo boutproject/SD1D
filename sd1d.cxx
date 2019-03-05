@@ -259,7 +259,9 @@ protected:
       SAVE_REPEAT4(S, R, E, F);  // Save net plasma particle source, radiated
                                  // power, energy transfer, friction
       SAVE_REPEAT2(Dn, kappa_n); // Neutral diffusion coefficients
-      SAVE_REPEAT(flux_ion);     // Flux of ions to target
+      if (mesh->lastY()){        // only dump where we set the value
+	SAVE_REPEAT(flux_ion);   // Flux of ions to target
+      }
     }
     if (heat_conduction)
       SAVE_REPEAT(kappa_epar); // Save coefficient of thermal conduction
