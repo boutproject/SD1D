@@ -47,7 +47,7 @@ upwind = W3
 
 [solver]
 
-type = cvode
+#type = cvode
 
 mxstep = 100000  # Maximum number of internal steps per output
 
@@ -104,6 +104,8 @@ ion_viscosity = false  # Braginskii parallel ion viscosity (ions and neutrals)
 
 heat_conduction = true # Heat conduction
 
+elastic_scattering = true
+
 density_form = 4
 momentum_form = 6
 energy_form = 8
@@ -132,7 +134,7 @@ bndry_target = dirichlet_o2
 
 [P]    # Plasma pressure P = 2 * Ne * T
 scale = 1
-function=0.1   # Initial constant pressure
+function=0.1*(2*pi - y)/(2*pi)   # Initial constant pressure
 
 powerflux = 2e7  # Input power flux in W/m^2
 
@@ -144,7 +146,7 @@ source = (powerflux*2/3 / (mesh:length_xpt))*h(mesh:length_xpt - mesh:ypos)  # I
 [Nn]
 # Neutral density
 scale = 1
-function = 1e-4   # Initial flat, low density
+function = 1e-2 * y   # Initial flat, low density
 
 [NVn]
 evolve = true # Evolve neutral momentum?

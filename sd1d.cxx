@@ -81,7 +81,6 @@ protected:
     OPTION(opt, atomic, true);
 
     OPTION(opt, hyper, -1);             // Numerical hyper-diffusion
-    OPTION(opt, ADpar, -1);             // Added Dissipation scheme
     OPTION(opt, viscos, -1);            // Parallel viscosity
     OPTION(opt, ion_viscosity, false);  // Braginskii parallel viscosity
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
@@ -318,6 +317,8 @@ protected:
       output << "\t" << s.first << "\n";
     }
     output << "-------------------------\n";
+
+    SAVE_REPEAT(ddt(Nn), ddt(Pn), ddt(NVn));
     
     return 0;
   }
@@ -583,9 +584,12 @@ protected:
     
     {
       TRACE("Electron pressure");
+      ddt(electrons.P) = 0.0;
       
       if (heat_conduction) {
-        ddt(electrons.P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, electrons.T);
+        // NOTE: This factor of 2 is to match SD1D v1, but should be removed
+        // once testing is complete.
+        ddt(electrons.P) += 2. * (2. / 3) * Div_par_diffusion_upwind(kappa_epar, electrons.T);
       }
 
       // Electron pressure acts on ions
@@ -825,6 +829,38 @@ protected:
    * @param[in] delta   Not used here
    */
   int precon(BoutReal UNUSED(t), BoutReal gamma, BoutReal UNUSED(delta)) {
+    static InvertPar *inv = NULL;
+    if (!inv) {
+      // Initialise parallel inversion class
+      inv = InvertPar::Create();
+      inv->setCoefA(1.0);
+    }
+    if (heat_conduction) {
+      auto &ions = *species.at("h+");
+      
+      // Set the coefficient in front of Grad2_par2
+      inv->setCoefB(-(2. / 3) * gamma * kappa_epar);
+      Field3D dT = ddt(ions.P);
+      dT.applyBoundary("neumann");
+      ddt(ions.P) = inv->solve(dT);
+    }
+
+    if (atomic) {
+      if (evolve_pn && (dneut > 0.0)) {
+        // Neutral pressure
+        inv->setCoefB(-(2. / 3) * gamma * kappa_n);
+        Field3D dT = ddt(Pn);
+        dT.applyBoundary("neumann");
+        ddt(Pn) = inv->solve(dT);
+      }
+
+      if (dneut > 0.0) {
+        inv->setCoefB(-gamma * Dn);
+        Field3D tmp = ddt(Nn);
+        tmp.applyBoundary("neumann");
+        ddt(Nn) = inv->solve(tmp);
+      }
+    }
     
     return 0;
   }
@@ -931,7 +967,6 @@ private:
   BoutReal tn_floor; // Minimum neutral gas temperature [eV]
 
   BoutReal hyper, viscos; // Numerical dissipation terms
-  BoutReal ADpar;         // Added Dissipation numerical term
 
   Field2D dy4; // SQ(SQ(coord->dy)) cached to avoid recalculating
 

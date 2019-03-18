@@ -2,7 +2,7 @@
 # 
 
 NOUT = 100     # number of output time-steps
-TIMESTEP = 10000.  # time between outputs
+TIMESTEP = 5000.  # time between outputs
 
 MZ = 1     # number of points in z direction (2^n + 1)
 MXG = 0    # No guard cells needed in X
@@ -12,7 +12,7 @@ MXG = 0    # No guard cells needed in X
 ny = 200    # Resolution along field-line
 
 length = 25        # Length of the domain in meters
-length_xpt = length #12.5  # Length from midplane to X-point [m]
+length_xpt = length # Length from midplane to X-point [m]
 area_expansion = 1 # Expansion factor Area(target) / Area(midplane)
 
 dy = length / ny   # Parallel grid spacing [m]
@@ -51,7 +51,7 @@ mxstep = 100000  # Maximum number of internal steps per output
 atol = 1e-10
 rtol = 1e-5
 
-use_precon=false
+use_precon=true
 
 [SD1D]
 
@@ -61,7 +61,7 @@ diagnose = true  # Output additional diagnostics
 Nnorm = 1e20  # Reference density [m^-3]
 Tnorm = 100   # Reference temperature [eV]
 Bnorm = 1.0   # Reference magnetic field [T]
-AA = 2.0      # Ion atomic number
+AA = 1.0      # Ion atomic number
 
 Eionize = 30  # Energy lost per ionisation [eV]
 
@@ -92,7 +92,7 @@ atomic = false      # Include atomic processes (CX/iz/rc)
 
 # Set flux tube area as function of parallel grid index
 # using normalised y coordinate from 0 to 2pi
-area = 1 #+ (mesh:area_expansion - 1) * h(mesh:ypos - mesh:length_xpt)*(mesh:ypos - mesh:length_xpt)/(mesh:length - mesh:length_xpt)
+area = 1 
 
 hyper = -1 # Numerical diffusion parameter on all terms
 ADpar = -1  # 4th-order numerical dissipation
@@ -101,10 +101,6 @@ ion_viscosity = false  # Braginskii parallel ion viscosity (ions and neutrals)
 
 heat_conduction = false # Heat conduction
 
-density_form = 4
-momentum_form = 6
-energy_form = 8
-
 [All]
 scale = 0.0
 
@@ -112,10 +108,6 @@ bndry_all = neumann_o2  # Default boundary condition
                         # Note: Sheath boundary applied in code
 
 [Nh+] # Ion density
-scale = 1
-function = 0.1
-
-[Ne] # Electron density 
 scale = 1
 
 # Initial conditions
@@ -128,21 +120,14 @@ source = (flux/(mesh:length_xpt))*h(mesh:length_xpt - mesh:ypos)  # Particle inp
 [NVh+] # Ion parallel momentum
 scale = 1
 vtarg = 0.3
-function = vtarg * Ne:scale * Ne:function * y / (2*pi)  # Linear from 0 to 0.03 in y
+function = vtarg * `Nh+:scale` * `Nh+:function` * y / (2*pi)  # Linear from 0 to 0.03 in y
 
-[NVi]  # Parallel ion momentum
-scale = 1
-vtarg = 0.3
-function = vtarg * Ne:scale * Ne:function * y / (2*pi)  # Linear from 0 to 0.03 in y
+
 bndry_target = dirichlet_o2
 
 [Ph+] # Ion pressure
 scale = 1
-function = 0.05
-
-[P]    # Plasma pressure P = 2 * Ne * T
-scale = 1
-function=0.1   # Initial constant pressure
+function = 0.05 # Initial constant pressure
 
 powerflux = 2e7  # Input power flux in W/m^2
 

@@ -48,19 +48,21 @@ FluidSpecies::FluidSpecies(std::string name, Options *opt, Solver *solver,
   solver->add(P, ("P" + name).c_str());
   solver->add(NV, ("NV" + name).c_str());
 
+  SAVE_REPEAT(ddt(N), ddt(P), ddt(NV));
+  
   // Volume sources of particles and energy
 
   std::string source_string;
   FieldFactory ffact(mesh);
 
-  Options *optne = Options::getRoot()->getSection("Ne");
+  Options *optne = Options::getRoot()->getSection("N" + name);
   optne->get("source", source_string, "0.0");
   NeSource = ffact.create2D(source_string, optne);
 
-  Options *optpe = Options::getRoot()->getSection("P");
+  Options *optpe = Options::getRoot()->getSection("P" + name);
   optpe->get("source", source_string, "0.0");
   PeSource = ffact.create2D(source_string, optpe);
-  SAVE_ONCE(PeSource);
+  dump.addOnce(PeSource, "P" + name + "source");
 
   PeSource *= 0.5; /// <- Note: This is temporary, applies if Te = Ti
   
@@ -93,10 +95,10 @@ FluidSpecies::FluidSpecies(std::string name, Options *opt, Solver *solver,
       // the input source is used
       density_error_integral = 1. / density_controller_i;
     }
-    SAVE_REPEAT(NeSource);
+    dump.addRepeat(NeSource, "N" + name + "source");
     NeSource0 = NeSource; // Save initial value
   } else {
-    SAVE_ONCE(NeSource);
+    dump.addOnce(NeSource, "N" + name + "source");
   }
 }
 
@@ -313,7 +315,9 @@ void FluidSpecies::evolve(BoutReal time) {
   /////////////////////////////////////////////////////
   // Density
 
-  Field3D a = sqrt(gamma_sound * T); // Local sound speed
+  // NOTE: The factor of 2 comes from the electrons
+  //       Probaby need some other way to calculate maximum wave speed
+  Field3D a = sqrt(gamma_sound * 2. * T); // Local sound speed
 
   {
     TRACE("Density");
