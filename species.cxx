@@ -110,13 +110,17 @@ void FluidSpecies::evolve(BoutReal time) {
   // Communicate evolving variables
   mesh->communicate(N, NV, P);
 
+  // Note: Here we are not using yup/ydown fields
+  // and just writing boundary conditions into the one field
+  N.mergeYupYdown();
+  NV.mergeYupYdown();
+  P.mergeYupYdown();
+  
   Coordinates *coord = mesh->getCoordinates();
 
   // Floor small values
   P = floor(P, 1e-10);
   N = floor(N, 1e-10);
-
-  Field3D Nlim = floor(N, 1e-5);
 
   V = NV / (AA * N); // Velocity. Note atomic mass factor AA
   T = P / N;         // Temperature
@@ -247,9 +251,14 @@ void FluidSpecies::evolve(BoutReal time) {
         // density
         N(r.ind, jy, jz) = 2 * Nout - N(r.ind, mesh->yend, jz);
 
-        // NV. This can be negative, so set this to the flux
-        // going out of the domain (zero gradient)
-        NV(r.ind, jy, jz) = Nout * Vout;
+        if (sheath_outflow) {
+          // NV. This can be negative, so set this to the flux
+          // going out of the domain (zero gradient)
+          // NOTE: NV includes the ion mass AA
+          NV(r.ind, jy, jz) = AA * Nout * Vout;
+        } else {
+          NV(r.ind, jy, jz) = 2. * AA * Nout * Vout - NV(r.ind, mesh->yend, jz);
+        }
 
         // temperature zero gradient (Neumann)
         T(r.ind, jy, jz) = T(r.ind, mesh->yend, jz);
@@ -350,12 +359,14 @@ void FluidSpecies::evolve(BoutReal time) {
 
   /////////////////////////////////////////////////////
   // Momentum
-
+  
   {
     TRACE("Momentum");
-    ddt(NV) = -Div_par_FV_FS(NV, V, a, bndry_flux_fix) // Momentum flow
-              - Grad_par(P);
-
+    ddt(NV) =
+      - Div_par_FV_FS(NV, V, a, bndry_flux_fix) // Momentum flow
+      - Grad_par(P)
+      ;
+    
     if (viscos > 0.) {
       ddt(NV) += viscos * Div_par_diffusion_index(V);
     }

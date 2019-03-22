@@ -52,6 +52,7 @@ public:
     Coordinates *coord = mesh->getCoordinates();
 
     Dn = 0.0;
+    kappa_n = 0.0;
     
     CELL_AVERAGE(i,                          // Index variable
                  Dn.getRegion(RGN_NOBNDRY),  // Index and region (input)

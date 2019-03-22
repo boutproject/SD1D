@@ -77,7 +77,7 @@ protected:
     
     Cs0 = sqrt(SI::qe * Tnorm / SI::Mp); // Reference sound speed [m/s]
     Omega_ci = SI::qe * Bnorm / SI::Mp;  // Ion cyclotron frequency [1/s]
-    rho_s0 = Cs0 / Omega_ci;                    // Length scale [m]
+    rho_s0 = Cs0 / Omega_ci;             // Length scale [m]
 
     mi_me = SI::Mp / SI::Me;
 
@@ -167,13 +167,6 @@ protected:
       update_coefficients = true;
     }
     setSplitOperator(split_operator);
-
-
-    // Molecules
-    // species["h2"] = new FluidSpecies("h2",
-    //                                  opt,
-    //                                  solver,
-    //                                  restarting);
     
     output << "\n-----------------------\nAvailable reactions: \n";
     for (auto i :  ReactionFactory::getInstance().listAvailable()) {
@@ -275,10 +268,12 @@ protected:
     ///////////////////////////////////////////////////
     // electron model
     
+    
     {
       TRACE("Electron pressure");
-      ddt(electrons.P) = 0.0;
       
+      ddt(electrons.P) = 0.0;
+
       if (heat_conduction) {
         
         if (update_coefficients) {
