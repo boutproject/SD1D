@@ -33,7 +33,7 @@ public:
     // Extract required variables
     Field3D N{atoms.N}, NV{atoms.NV}, P{atoms.P};
     
-    Coordinates *coord = mesh->getCoordinates();
+    Coordinates *coord = bout::globals::mesh->getCoordinates();
 
     Sn = 0.0;
     Snv = 0.0;

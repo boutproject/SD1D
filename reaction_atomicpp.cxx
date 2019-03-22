@@ -11,6 +11,8 @@
 
 #include "reaction.hxx"
 
+using bout::globals::mesh;
+
 // Use OpenADAS data through Atomicpp
 class ReactionAtomicppCoronal : public Reaction {
 public:

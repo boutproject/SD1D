@@ -32,6 +32,8 @@
 #include <cmath>
 
 
+using bout::globals::mesh;
+
 const Field3D Div_par_diffusion(const Field3D &K, const Field3D &f, bool bndry_flux) {
   Field3D result;
   result = 0.0;

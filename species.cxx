@@ -4,6 +4,9 @@
 #include "div_ops.hxx"
 #include "field_factory.hxx"
 
+using bout::globals::mesh;
+using bout::globals::dump;
+
 FluidSpecies::FluidSpecies(std::string name, Options *opt, Solver *solver,
                            Datafile &restart, bool restarting, BoutReal Nnorm,
                            BoutReal Tnorm, BoutReal Omega_ci, BoutReal Cs0)

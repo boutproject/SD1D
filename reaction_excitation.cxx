@@ -29,7 +29,7 @@ public:
     Field3D Ne{elec.N}, Te{elec.T};
     Field3D Nn{atoms.N};
 
-    Coordinates *coord = mesh->getCoordinates();
+    Coordinates *coord = bout::globals::mesh->getCoordinates();
     
     Rex = 0.0;
     

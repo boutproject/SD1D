@@ -92,7 +92,7 @@ struct QuadRule {
   
   QuadRule(Coordinates *coord, const Ind3D &i) {
     // Map the 3D index to 2D
-    calculateWeights(coord, mesh->map3Dto2D(i));
+    calculateWeights(coord, bout::globals::mesh->map3Dto2D(i));
   }
   
   void calculateWeights(Coordinates *coord, const Ind2D &i) {

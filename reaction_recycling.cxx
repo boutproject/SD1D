@@ -9,6 +9,8 @@
 
 #include "reaction.hxx"
 
+using bout::globals::mesh;
+
 class ReactionRecycling : public Reaction {
 public:
   ReactionRecycling(Options *options) {

@@ -55,7 +55,7 @@ public:
       throw BoutException("No 'h' species");
     }
 
-    Coordinates *coord = mesh->getCoordinates();
+    Coordinates *coord = bout::globals::mesh->getCoordinates();
 
     Fel = 0.0;
     Eel = 0.0;

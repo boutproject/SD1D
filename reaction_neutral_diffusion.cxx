@@ -11,6 +11,8 @@
 #include "radiation.hxx"
 #include "reaction.hxx"
 
+using bout::globals::mesh;
+
 class ReactionNeutralDiffusion : public Reaction {
 public:
   ReactionNeutralDiffusion(Options *options) {

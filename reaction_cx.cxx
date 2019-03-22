@@ -10,6 +10,8 @@
 #include "radiation.hxx"
 #include "reaction.hxx"
 
+using bout::globals::mesh;
+
 class ReactionHydrogenCX : public Reaction {
 public:
   ReactionHydrogenCX(Options *options) {

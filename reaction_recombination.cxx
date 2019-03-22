@@ -41,7 +41,7 @@ public:
       throw BoutException("No 'e' species");
     }
     
-    Coordinates *coord = mesh->getCoordinates();
+    Coordinates *coord = bout::globals::mesh->getCoordinates();
     
     Rrec = 0.0;
     Erec = 0.0;
