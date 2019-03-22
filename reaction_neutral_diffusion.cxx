@@ -27,6 +27,9 @@ public:
     
     // Maximum mean free path [m]
     max_mfp = (*options)["max_mfp"].withDefault(0.1);
+
+    // Scale neutral gas diffusion
+    dneut = (*options)["dneut"].withDefault(1.0); 
   }
 
   void updateSpecies(const SpeciesMap &species, BoutReal Tnorm, BoutReal Nnorm,
