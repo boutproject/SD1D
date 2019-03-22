@@ -95,16 +95,6 @@ const Field3D Div_par_diffusion_index(const Field3D &f, bool bndry_flux=true);
 const Field3D AddedDissipation(const Field3D &N, const Field3D &P, const Field3D f, bool bndry_flux=true);
 
 /*!
- * Finite volume parallel divergence
- *
- * Assumes there are (at least) two guard cells (MYG >= 2)
- * 
- * @param[in] f  The field being advected
- * @param[in] v  The advection velocity
- */
-const Field3D Div_par_FV(const Field3D &f, const Field3D &v);
-
-/*!
  * Parallel divergence, flux splitting version
  *
  * @param[in] f   The field being advected
@@ -115,29 +105,5 @@ const Field3D Div_par_FV(const Field3D &f, const Field3D &v);
  * Split into fluxes with speed v+a and v-a
  */
 const Field3D Div_par_FV_FS(const Field3D &f, const Field3D &v, const Field3D &a, bool bndry_flux_fixed=false);
-
-/*!
- * Finite volume parallel divergence
- * 
- * Div_par( f g v )
- *
- * Both f and g are reconstructed to cell boundaries,
- * then the combination is calculated as
- * 
- * (fg)_R = (1/2) ( f_C g_R + f_R g_C )
- *
- */ 
-const Field3D Div_par_FV3(const Field3D &f, const Field3D &g, const Field3D &v);
-
-/*!
- * 4th-order derivative
- *
- * Implemented as a flux through cell boundaries, calculated
- * using one-sided 3rd derivative at the boundary.
- *
- * @param[in]  d  Coefficient, averaged from neighbouring cells
- * @param[in]  f  The field being differentiated
- */
-const Field3D D4DY4_FV(const Field3D &d, const Field3D &f);
 
 #endif //  __DIV_OPS_H__
