@@ -60,13 +60,6 @@ protected:
     OPTION(opt, Bnorm, 1.0);             // Reference magnetic field [T]
     SAVE_ONCE3(Tnorm, Nnorm, Bnorm);      // Save normalisations
 
-    // Model parameters
-    OPTION(opt, density_sheath, 0);   // Free boundary
-    OPTION(opt, pressure_sheath, 0);  // Free boundary
-    OPTION(opt, neutral_gamma, 0.25); // Neutral heat transmission
-
-    OPTION(opt, atomic, true);
-
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
 
     // Get a list of reactions to include, separated by commas
@@ -75,13 +68,8 @@ protected:
     for (const auto& name : strsplit(reaction_names, ',')) {
       auto name_trimmed = trim(name);
       reactions.push_back(ReactionFactory::getInstance().create(
-          name_trimmed, Options::root()[name_trimmed]));
+          name_trimmed, &Options::root()[name_trimmed]));
     }
-
-    // Read the flux-tube area from input file
-    // This goes into the Jacobian.
-    std::string area_string;
-    FieldFactory ffact(mesh);
 
     // Calculate normalisation factors
     // Note: These are calculated for Hydrogen, with
@@ -114,7 +102,7 @@ protected:
       auto name_trimmed = trim(name);
 
       species[name_trimmed] = new FluidSpecies(name_trimmed,
-                                               Options::root()[name_trimmed],
+                                               &Options::root()[name_trimmed],
                                                solver,
                                                restart,
                                                restarting,
@@ -123,9 +111,12 @@ protected:
 
     // Load the metric tensor
     LoadMetric(rho_s0, Bnorm);
-
-    opt->get("area", area_string, "1.0");
-    mesh->getCoordinates()->J = ffact.create2D(area_string, Options::getRoot());
+    
+    // Read the flux-tube area from input file
+    // This goes into the Jacobian.
+    std::string area_string = opt["area"].withDefault<std::string>("1.0");
+    
+    mesh->getCoordinates()->J = FieldFactory(mesh).create2D(area_string, Options::getRoot());
     
     //////////////////////////////////////////////////
     // Impurities
@@ -141,48 +132,24 @@ protected:
         OPTION(opt, impurity_species, "c");
         
         reactions.push_back(
-                            ReactionFactory::getInstance().create("atomic++coronal", opt));
+                            ReactionFactory::getInstance().create("atomic++coronal", &opt));
       } else {
         // Use carbon radiation for the impurity
         impurity_species = "c";
         reactions.push_back(
-                            ReactionFactory::getInstance().create("c_hutchinson", opt));
+                            ReactionFactory::getInstance().create("c_hutchinson", &opt));
       }
 
       // Create a Species object for the impurity
       species[impurity_species] = new Species();
     }
 
-    if (heat_conduction)
+    if (heat_conduction) {
       SAVE_REPEAT(kappa_epar); // Save coefficient of thermal conduction
-
-    bool diagnose;
-    OPTION(opt, diagnose, true);
+    }
     
     kappa_epar = 0.0;
     
-    // Calculate neutral gas redistribution weights over the domain
-    std::string redist_string;
-    opt->get("redist_weight", redist_string, "1.0");
-    redist_weight = ffact.create2D(redist_string, opt);
-    BoutReal localweight = 0.0;
-    Coordinates *coord = mesh->getCoordinates();
-    for (int j = mesh->ystart; j <= mesh->yend; j++) {
-      localweight += redist_weight(mesh->xstart, j) *
-                     coord->J(mesh->xstart, j) * coord->dy(mesh->xstart, j);
-    }
-
-    MPI_Comm ycomm = mesh->getYcomm(mesh->xstart); // MPI communicator
-
-    // Calculate total weight by summing over all processors
-    BoutReal totalweight;
-    MPI_Allreduce(&localweight, &totalweight, 1, MPI_DOUBLE, MPI_SUM, ycomm);
-    // Normalise redist_weight so sum over domain:
-    //
-    // sum ( redist_weight * J * dy ) = 1
-    //
-    redist_weight /= totalweight;
-
     setPrecon((preconfunc)&SD1D::precon);
 
     //////////////////////////////////////////
@@ -237,130 +204,70 @@ protected:
    *
    */
   int rhs(BoutReal time) {
-    Coordinates *coord = mesh->getCoordinates();
+
+    ///////////////////////////////////////////////////////////
+    // Evolve all ion and neutral species
     
-    // Evolve all species
     for(auto &s : species) {
       s.second->evolve(time);
     }
 
-    // Electrons handled separately
+    //////////////////////////////////////////////////////////
+    // Electrons
+    
     auto &electrons = *species.at("e");
     
     // Set electron species properties
-    
     auto &ions = *species.at("h+");
     electrons.T = ions.T;
     electrons.N = ions.N * ions.ZZ;
     electrons.P = ions.P * ions.ZZ;
     electrons.V = ions.V;
 
-    // Set sheath boundary condition on flow
-
-    TRACE("Sheath");
-
-    if (evolve_pn) {
-      ddt(Pn) = 0.0;
-    }
-
-    for (RangeIterator r = mesh->iterateBndryUpperY(); !r.isDone(); r++) {
-      int jz = 0;
-
-      // Set boundary half-way between cells
-      for (int jy = mesh->yend + 1; jy < mesh->LocalNy; jy++) {
-        
-        if (atomic) {
-          ///// Neutral model
-          // Flux of neutral particles, momentum, and energy are set later
-          // Here the neutral velocity is set to no-flow conditions
-
-          // Vn fixed value (Dirichlet)
-          Vn(r.ind, jy, jz) = -Vn(r.ind, mesh->yend, jz);
-
-          // Nn free boundary (constant gradient)
-          Nn(r.ind, jy, jz) =
-              2. * Nn(r.ind, mesh->yend, jz) - Nn(r.ind, mesh->yend - 1, jz);
-
-          if (evolve_pn) {
-            // Tn fixed value (Dirichlet)
-            // Tn(r.ind, jy, jz) = 3.5/Tnorm - Tn(r.ind, mesh->yend, jz);
-
-            // Tn zero gradient. Heat flux set by gamma
-            Tn(r.ind, jy, jz) = Tn(r.ind, mesh->yend, jz);
-
-            if (rhs_explicit && (neutral_gamma > 0.0)) {
-              // Density at the target
-              BoutReal Nnout = 0.5 * (Nn(r.ind, mesh->yend, jz) +
-                                      Nn(r.ind, mesh->yend + 1, jz));
-              // gamma * n * T * cs
-              BoutReal q = neutral_gamma * Nnout * Tn(r.ind, jy, jz) *
-                           sqrt(Tn(r.ind, jy, jz));
-
-              // Multiply by cell area to get power
-              BoutReal heatflux = q *
-                                  (coord->J(r.ind, mesh->yend) +
-                                   coord->J(r.ind, mesh->yend + 1)) /
-                                  (sqrt(coord->g_22(r.ind, mesh->yend)) +
-                                   sqrt(coord->g_22(r.ind, mesh->yend + 1)));
-
-              // Divide by volume of cell, and 2/3 to get pressure
-              ddt(Pn)(r.ind, mesh->yend, jz) -=
-                  (2. / 3) * heatflux /
-                  (coord->dy(r.ind, mesh->yend) * coord->J(r.ind, mesh->yend));
-            }
-          } else {
-            Tn(r.ind, jy, jz) = ions.T(r.ind, jy, jz);
-          }
-          Pn(r.ind, jy, jz) = Nn(r.ind, jy, jz) * Tn(r.ind, jy, jz);
-          NVn(r.ind, jy, jz) = -NVn(r.ind, mesh->yend, jz);
-        }
-      }
-    }
+    //////////////////////////////////////////////////////////
+    // Fixed fraction inpurity species
     
-    if (atomic && rhs_explicit) {
-      // Atomic physics
-      TRACE("Atomic");
+    if (fimp > 0.0) {
+      // Fixed fraction impurity radiation 
+      species.at(impurity_species)->N = fimp * ions.N;
+    }
+
+    //////////////////////////////////////////////////////////
+    // Calculate reactions
+    
+    for (auto &r : reactions) {
+      TRACE("Reaction %s", r->str().c_str());
       
-      if (fimp > 0.0) {
-        // Fixed fraction impurity radiation 
-        species.at(impurity_species)->N = fimp * ions.N;
+      r->updateSpecies(species, Tnorm, Nnorm, Cs0, Omega_ci);
+      
+      // Particle (density) sources
+      for (const auto &s : r->densitySources()) {
+        // s.first contains the species label (std::string)
+        // s.second is a Field3D with the source in normalised units
+        try {
+          ddt(species.at(s.first)->N) += s.second;
+        } catch (const std::out_of_range &e) {
+          throw BoutException("Unhandled density source for species '%s'", s.first.c_str());
+        }
       }
       
-      // Calculate reactions
-      for (auto &r : reactions) {
-        TRACE("Reaction %s", r->str().c_str());
-        
-        r->updateSpecies(species, Tnorm, Nnorm, Cs0, Omega_ci);
-
-        // Particle (density) sources
-        for (const auto &s : r->densitySources()) {
-          // s.first contains the species label (std::string)
-          // s.second is a Field3D with the source in normalised units
-          try {
-            ddt(species.at(s.first)->N) += s.second;
-          } catch (const std::out_of_range &e) {
-            throw BoutException("Unhandled density source for species '%s'", s.first.c_str());
-          }
+      // Momentum sources
+      for (const auto &s : r->momentumSources()) {
+        // Note: Mass should be accounted for somewhere
+        try {
+          ddt(species.at(s.first)->NV) += s.second;
+        } catch (const std::out_of_range &e) {
+          throw BoutException("Unhandled momentum source for species '%s'", s.first.c_str());
         }
-        
-        // Momentum sources
-        for (const auto &s : r->momentumSources()) {
-          // Note: Mass should be accounted for somewhere
-          try {
-            ddt(species.at(s.first)->NV) += s.second;
-          } catch (const std::out_of_range &e) {
-            throw BoutException("Unhandled momentum source for species '%s'", s.first.c_str());
-          }
-        }   
-        
-        // Energy sources
-        for (const auto &s : r->energySources()) {
-          // Add power to pressure equation, with 2/3 factor
-          try {
-            ddt(species.at(s.first)->P) += (2./3) * s.second;
-          } catch (const std::out_of_range &e) {
-            throw BoutException("Unhandled energy source for species '%s'", s.first.c_str());
-          }
+      }   
+      
+      // Energy sources
+      for (const auto &s : r->energySources()) {
+        // Add power to pressure equation, with 2/3 factor
+        try {
+          ddt(species.at(s.first)->P) += (2./3) * s.second;
+        } catch (const std::out_of_range &e) {
+          throw BoutException("Unhandled energy source for species '%s'", s.first.c_str());
         }
       }
     }
@@ -425,22 +332,22 @@ protected:
       ddt(ions.P) = inv->solve(dT);
     }
 
-    if (atomic) {
-      if (evolve_pn && (dneut > 0.0)) {
-        // Neutral pressure
-        inv->setCoefB(-(2. / 3) * gamma * kappa_n);
-        Field3D dT = ddt(Pn);
-        dT.applyBoundary("neumann");
-        ddt(Pn) = inv->solve(dT);
-      }
+    // if (atomic) {
+    //   if (evolve_pn && (dneut > 0.0)) {
+    //     // Neutral pressure
+    //     inv->setCoefB(-(2. / 3) * gamma * kappa_n);
+    //     Field3D dT = ddt(Pn);
+    //     dT.applyBoundary("neumann");
+    //     ddt(Pn) = inv->solve(dT);
+    //   }
 
-      if (dneut > 0.0) {
-        inv->setCoefB(-gamma * Dn);
-        Field3D tmp = ddt(Nn);
-        tmp.applyBoundary("neumann");
-        ddt(Nn) = inv->solve(tmp);
-      }
-    }
+    //   if (dneut > 0.0) {
+    //     inv->setCoefB(-gamma * Dn);
+    //     Field3D tmp = ddt(Nn);
+    //     tmp.applyBoundary("neumann");
+    //     ddt(Nn) = inv->solve(tmp);
+    //   }
+    // }
     
     return 0;
   }
@@ -477,10 +384,9 @@ private:
   SpeciesMap species; // Map of species, indexed by strings
   
   /////////////////////////////////////////////////////////////////
-  // Diffusion and viscosity coefficients
+  // Electron model
 
   Field3D kappa_epar; // Plasma thermal conduction
-
   Field3D tau_e;        // Electron collision time
   bool heat_conduction; // Thermal conduction on/off
 
@@ -492,21 +398,7 @@ private:
   std::string impurity_species;   // Name of impurity species to use
   
   std::vector<Reaction*> reactions; // Reaction set to include
-  
-  ///////////////////////////////////////////////////////////////
-  // Sheath boundary
-
-  BoutReal neutral_gamma; // Neutral heat transmission
-
-  int density_sheath;  // How to handle density boundary?
-  int pressure_sheath; // How to handle pressure boundary?
-  
-  ///////////////////////////////////////////////////////////////
-  // Sources
-
-  bool volume_source;         // Include volume sources?
-  BoutReal powerflux;         // Used if no volume sources
-  
+    
   ///////////////////////////////////////////////////////////////
   // Splitting into implicit and explicit
   bool rhs_implicit, rhs_explicit; // Enable implicit and explicit parts

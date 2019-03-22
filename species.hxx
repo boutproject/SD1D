@@ -66,7 +66,8 @@ private:
   
   bool bndry_flux_fix;
   BoutReal gamma_sound; // Ratio of specific heats in numerical dissipation term
-  
+
+  bool sheath_outflow; // True if species flows out at >= sound speed
   int density_sheath;  // How to handle density boundary?
   int pressure_sheath; // How to handle pressure boundary?
   BoutReal sheath_gamma; // Sheath heat transmission factor

@@ -17,7 +17,7 @@ public:
 
     vwall = (*options)["vwall"].withDefault(1./3); // velocity corresponding to 1/3rd Franck-Condon at wall
     frecycle = (*options)["frecycle"].withDefault(0.0); // Recycling fraction
-    gasspuff = (*options)["gasspuff"].withDefault(0.0); // Additional gas flux at target
+    gaspuff = (*options)["gaspuff"].withDefault(0.0); // Additional gas flux at target
     fredistribute = (*options)["fredistribute"].withDefault(0.0); // Fraction of neutrals redistributed evenly along leg
 
     // Calculate the weighting for redistribution of neutrals
@@ -36,7 +36,7 @@ public:
         coord->J(mesh->xstart, j) * coord->dy(mesh->xstart, j);
     }
 
-    ycomm = mesh->getYcomm(mesh->xstart); // MPI communicator
+    MPI_Comm ycomm = mesh->getYcomm(mesh->xstart); // MPI communicator
     
     // Calculate total weight by summing over all processors
     BoutReal totalweight;
@@ -53,8 +53,8 @@ public:
     }
   }
 
-  void updateSpecies(const SpeciesMap &species, BoutReal UNUSED(Tnorm), BoutReal UNUSED(Nnorm),
-                     BoutReal UNUSED(Cs0), BoutReal Omega_ci) {
+  void updateSpecies(const SpeciesMap &species, BoutReal Tnorm, BoutReal UNUSED(Nnorm),
+                     BoutReal UNUSED(Cs0), BoutReal UNUSED(Omega_ci)) {
 
     AUTO_TRACE();
     
@@ -70,7 +70,7 @@ public:
     
     // Sources
     SNVn = 0.0;
-    SPn = 0.0;
+    SEn = 0.0;
     SNn = 0.0;
     
     BoutReal nredist;

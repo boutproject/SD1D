@@ -18,6 +18,7 @@ FluidSpecies::FluidSpecies(std::string name, Options *opt, Solver *solver,
   OPTION(opt, bndry_flux_fix, false);
 
   // Sheath boundary
+  OPTION(opt, sheath_outflow, true); // Out-flowing sheath boundary
   OPTION(opt, density_sheath, 0);  // Free boundary
   OPTION(opt, pressure_sheath, 0); // Free boundary
   OPTION(opt, sheath_gamma, 6.5);  // Sheath heat transmission
@@ -47,8 +48,6 @@ FluidSpecies::FluidSpecies(std::string name, Options *opt, Solver *solver,
   solver->add(N, ("N" + name).c_str());
   solver->add(P, ("P" + name).c_str());
   solver->add(NV, ("NV" + name).c_str());
-
-  SAVE_REPEAT(ddt(N), ddt(P), ddt(NV));
   
   // Volume sources of particles and energy
 
@@ -130,12 +129,17 @@ void FluidSpecies::evolve(BoutReal time) {
     for (RangeIterator r = mesh->iterateBndryUpperY(); !r.isDone(); r++) {
       int jz = 0;
 
-      // Outward flow velocity to >= Cs
-      BoutReal Vout = sqrt(2.0 * T(r.ind, mesh->yend, jz));
-
-      if (V(r.ind, mesh->yend, jz) > Vout) {
-        // If plasma is faster than sound speed, go to plasma velocity
-        Vout = V(r.ind, mesh->yend, jz);
+      // Out-flow velocity 
+      BoutReal Vout = 0.0;
+      if (sheath_outflow) {
+        // Outward flow velocity to >= Cs
+        // Note: Need to account for the species mass
+        Vout = sqrt(2.0 * T(r.ind, mesh->yend, jz) / AA);
+        
+        if (V(r.ind, mesh->yend, jz) > Vout) {
+          // If plasma is faster than sound speed, go to plasma velocity
+          Vout = V(r.ind, mesh->yend, jz);
+        }
       }
 
       BoutReal Nout;
@@ -168,8 +172,9 @@ void FluidSpecies::evolve(BoutReal time) {
 
       // Prevent Nout from going negative
       // -> Flux is always to the wall
-      if (Nout < 0.0)
+      if (Nout < 0.0) {
         Nout = 0.0;
+      }
 
       // Flux of particles is Ne*Vout
       BoutReal flux = Nout * Vout;
@@ -203,12 +208,21 @@ void FluidSpecies::evolve(BoutReal time) {
         throw BoutException("Unrecognised pressure_sheath option");
       }
 
-      if (Pout < 0.0)
+      if (Pout < 0.0) {
         Pout = 0.0;
+      }
 
       // Additional cooling
-      BoutReal q = (sheath_gamma - 6) * T(r.ind, mesh->yend, jz) * flux;
+      BoutReal q;
 
+      if (sheath_outflow) {
+        // Fluid equations provide some heat flux
+        q = (sheath_gamma - 6) * T(r.ind, mesh->yend, jz) * flux;
+      } else {
+        q = sheath_gamma * Nout * T(r.ind, mesh->yend, jz) *
+            sqrt(T(r.ind, mesh->yend, jz) / AA);
+      }
+        
       // Multiply by cell area to get power
       BoutReal heatflux =
           q * (coord->J(r.ind, mesh->yend) + coord->J(r.ind, mesh->yend + 1)) /
@@ -317,7 +331,7 @@ void FluidSpecies::evolve(BoutReal time) {
 
   // NOTE: The factor of 2 comes from the electrons
   //       Probaby need some other way to calculate maximum wave speed
-  Field3D a = sqrt(gamma_sound * 2. * T); // Local sound speed
+  Field3D a = sqrt(gamma_sound * 2. * T / AA); // Local sound speed
 
   {
     TRACE("Density");
