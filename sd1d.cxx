@@ -41,6 +41,7 @@
 #include <derivs.hxx>
 #include <field_factory.hxx>
 #include <invert_parderiv.hxx>
+#include <bout/snb.hxx>
 
 #include "div_ops.hxx"
 #include "loadmetric.hxx"
@@ -49,6 +50,8 @@
 // OpenADAS interface Atomicpp by T.Body
 #include "atomicpp/ImpuritySpecies.hxx"
 #include "atomicpp/Prad.hxx"
+
+using bout::HeatFluxSNB;
 
 class SD1D : public PhysicsModel {
 protected:
@@ -107,7 +110,12 @@ protected:
     OPTION(opt, viscos, -1);            // Parallel viscosity
     OPTION(opt, ion_viscosity, false);  // Braginskii parallel viscosity
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
-
+    snb_model = (*opt)["snb_model"].doc("Use SNB non-local heat flux model").withDefault<bool>(false);
+    if (snb_model) {
+      // Create a solver to calculate the SNB heat flux
+      snb = new HeatFluxSNB();
+    }
+    
     OPTION(opt, charge_exchange, true);
     OPTION(opt, charge_exchange_escape, false);
     OPTION(opt, charge_exchange_return_fE, 1.0);
@@ -263,9 +271,14 @@ protected:
 	SAVE_REPEAT(flux_ion);   // Flux of ions to target
       }
     }
-    if (heat_conduction)
+    if (heat_conduction) {
       SAVE_REPEAT(kappa_epar); // Save coefficient of thermal conduction
-
+      
+      if (snb_model) {
+        SAVE_REPEAT(Div_Q_SH, Div_Q_SNB);
+      }
+    }
+    
     bool diagnose;
     OPTION(opt, diagnose, true);
     if (diagnose) {
@@ -1188,7 +1201,24 @@ protected:
 
       if (rhs_implicit) {
         if (heat_conduction) {
-          ddt(P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, Te);
+          if (snb_model) {
+            // SNB non-local heat flux. Also returns the Spitzer-Harm value for comparison
+            // Note: Te in eV, Ne in Nnorm
+            Field2D dy_orig = mesh->getCoordinates()->dy;
+            mesh->getCoordinates()->dy *= rho_s0; // Convert distances to m
+            Div_Q_SNB = snb->divHeatFlux(Te * Tnorm, Ne * Nnorm, &Div_Q_SH);
+            mesh->getCoordinates()->dy = dy_orig;
+            
+            // Normalise from eV/m^3/s
+            Div_Q_SNB /= Tnorm * Nnorm * Omega_ci;
+            Div_Q_SH /= Tnorm * Nnorm * Omega_ci;
+
+            // Add to pressure equation
+            ddt(P) += (2. / 3) * Div_Q_SNB;
+          } else {
+            // The standard Spitzer-Harm model
+            ddt(P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, Te);
+          } 
         }
         if (anomalous_D > 0.0) {
           ddt(P) += Div_par_diffusion(anomalous_D * 2. * Te, Ne);
@@ -1654,7 +1684,10 @@ private:
   Field3D eta_i;        // Braginskii ion viscosity
   bool ion_viscosity;   // Braginskii ion viscosity on/off
   bool heat_conduction; // Thermal conduction on/off
-
+  bool snb_model;       // Use the SNB model for heat conduction?
+  HeatFluxSNB *snb;
+  Field3D Div_Q_SH, Div_Q_SNB; // Divergence of heat flux from Spitzer-Harm and SNB
+  
   bool charge_exchange; // Charge exchange between plasma and neutrals. Doesn't
                         // affect neutral diffusion
   bool charge_exchange_escape; // Charge-exchange momentum lost from plasma, not
