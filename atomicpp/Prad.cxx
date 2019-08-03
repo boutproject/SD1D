@@ -28,9 +28,6 @@ using namespace std;
 double computeRadiatedPower(ImpuritySpecies &impurity, double Te, double Ne,
                             double Ni, double Nn) {
   
-  // cout << "Called for Te = " << Te << ", Ne = " << Ne << ", Ni = " << Ni
-  //      << ", Nn = " << Nn << endl;
-
   int Z = impurity.get_atomic_number();
   vector<double> iz_stage_distribution(Z + 1);
 
@@ -69,6 +66,7 @@ double computeRadiatedPower(ImpuritySpecies &impurity, double Te, double Ne,
 
     iz_stage_distribution[k + 1] =
         iz_stage_distribution[k] * (k_iz_evaluated / k_rec_evaluated);
+
     sum_iz += iz_stage_distribution[k + 1];
   }
 
@@ -106,6 +104,7 @@ double computeRadiatedPower(ImpuritySpecies &impurity, double Te, double Ne,
         double Nz_charge_state =
             Ni * iz_stage_distribution[target_charge_state];
         scale = Ne * Nz_charge_state;
+
       } else if (*iter == "continuum_power") {
         //# range of k is 1+ to Z+ (needs charged target)
         target_charge_state = k + 1; //#charged target
@@ -133,8 +132,6 @@ double computeRadiatedPower(ImpuritySpecies &impurity, double Te, double Ne,
       // Instead they give the
       // power from the kth element on the rate coefficient, which may be kth or
       // (k+1)th charge state
-      // cout << "Power due to "<< *iter << " from k="<<k<<" is "<<power<<"
-      // [W/m3]"<<endl;
       k_power += power;
     }
     // N.b. These won't quite give the power from the kth charge state. Instead
