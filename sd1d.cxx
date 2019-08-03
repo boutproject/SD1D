@@ -1224,7 +1224,7 @@ protected:
             Div_Q_SH /= Tnorm * Nnorm * Omega_ci;
 
             // Add to pressure equation
-            ddt(P) += (2. / 3) * Div_Q_SNB;
+            ddt(P) -= (2. / 3) * Div_Q_SNB;
           } else {
             // The standard Spitzer-Harm model
             ddt(P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, Te);
