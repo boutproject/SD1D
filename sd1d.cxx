@@ -307,6 +307,16 @@ protected:
       SAVE_REPEAT(Vi);
     }
 
+    if ( (*opt)["output_ddt"].withDefault<bool>(false) ) {
+      SAVE_REPEAT(ddt(Ne), ddt(P), ddt(NVi));
+      if (atomic) {
+        SAVE_REPEAT(ddt(Nn), ddt(Pn));
+        if (evolve_nvn) {
+          SAVE_REPEAT(ddt(NVn));
+        }
+      }
+    }
+
     if (ion_viscosity)
       SAVE_REPEAT(eta_i);
 
