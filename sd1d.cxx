@@ -796,18 +796,55 @@ protected:
       // Atomic physics
       TRACE("Atomic");
 
+      // Lower floor on Nn for atomic rates
+      Field3D Nnlim2 = floor(Nn, 0.0);
+      
       if (fimp > 0.0) {
         // Impurity radiation
 
         if (impurity_adas) {
           Rzrad.allocate();
           for (auto &i : Rzrad) {
-            Rzrad[i] = computeRadiatedPower(
-                *impurity,
-                Te[i] * Tnorm,        // electron temperature [eV]
-                Ne[i] * Nnorm,        // electron density [m^-3]
-                fimp * Ne[i] * Nnorm, // impurity density [m^-3]
-                Nn[i] * Nnorm);       // Neutral density [m^-3]
+            // Calculate cell centre (C), left (L) and right (R) values
+
+            BoutReal Te_C = Te[i],
+              Te_L = 0.5 * (Te[i.ym()] + Te[i]),
+              Te_R = 0.5 * (Te[i] + Te[i.yp()]);
+            BoutReal Ne_C = Ne[i],
+              Ne_L = 0.5 * (Ne[i.ym()] + Ne[i]),
+              Ne_R = 0.5 * (Ne[i] + Ne[i.yp()]);
+            BoutReal Nn_C = Nnlim2[i],
+              Nn_L = 0.5 * (Nnlim2[i.ym()] + Nnlim2[i]),
+              Nn_R = 0.5 * (Nnlim2[i] + Nnlim2[i.yp()]);
+            
+            BoutReal Rz_L = computeRadiatedPower(*impurity,
+                                                 Te_L * Tnorm,        // electron temperature [eV]
+                                                 Ne_L * Nnorm,        // electron density [m^-3]
+                                                 fimp * Ne_L * Nnorm, // impurity density [m^-3]
+                                                 Nn_L * Nnorm);       // Neutral density [m^-3]
+
+            BoutReal Rz_C = computeRadiatedPower(*impurity,
+                                                 Te_C * Tnorm,        // electron temperature [eV]
+                                                 Ne_C * Nnorm,        // electron density [m^-3]
+                                                 fimp * Ne_C * Nnorm, // impurity density [m^-3]
+                                                 Nn_C * Nnorm);       // Neutral density [m^-3]
+
+            BoutReal Rz_R = computeRadiatedPower(*impurity,
+                                                 Te_R * Tnorm,        // electron temperature [eV]
+                                                 Ne_R * Nnorm,        // electron density [m^-3]
+                                                 fimp * Ne_R * Nnorm, // impurity density [m^-3]
+                                                 Nn_R * Nnorm);       // Neutral density [m^-3]
+
+
+            // Jacobian (Cross-sectional area)
+            BoutReal J_C = coord->J[i],
+              J_L = 0.5 * (coord->J[i.ym()] + coord->J[i]),
+              J_R = 0.5 * (coord->J[i] + coord->J[i.yp()]);
+
+            // Simpson's rule, calculate average over cell
+            Rzrad[i] = (J_L * Rz_L +
+                        4. * J_C * Rz_C +
+                        J_R * Rz_R) / (6. * J_C);
           }
         } else {
           Rzrad = rad->power(Te * Tnorm, Ne * Nnorm,
@@ -817,9 +854,6 @@ protected:
       } // else Rzrad = 0.0 set in init()
 
       E = 0.0; // Energy transfer to neutrals
-
-      // Lower floor on Nn for atomic rates
-      Field3D Nnlim2 = floor(Nn, 0.0);
 
       for (int i = 0; i < mesh->LocalNx; i++)
         for (int j = mesh->ystart; j <= mesh->yend; j++)
