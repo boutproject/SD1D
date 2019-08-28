@@ -53,8 +53,9 @@ double RateCoefficient::call0D(const int k, const double eval_Te, const double e
 	
 	// Perform a basic interpolation based on linear distance
 	// values to search for
-	double eval_log10_Te = log10(eval_Te);
-	double eval_log10_Ne = log10(eval_Ne);
+  
+  double eval_log10_Te = log10(eval_Te < 1e-5 ? 1e-5 : eval_Te);
+  double eval_log10_Ne = log10(eval_Ne < 1e-5 ? 1e-5 : eval_Ne);
 	// Look through the log_temperature and log_density attributes of RateCoefficient to find nearest (strictly lower)
 	// Subtract 1 from answer to account for indexing from 0
 	int low_Te = lower_bound(log_temperature.begin(), log_temperature.end(), eval_log10_Te) - log_temperature.begin() - 1;
@@ -62,12 +63,13 @@ double RateCoefficient::call0D(const int k, const double eval_Te, const double e
 
 	// Bounds checking -- make sure you haven't dropped off the end of the array
         // An easy error to make is supplying the function arguments already having taken the log10
-        if (low_Te >= log_temperature.size()-1) {
+        if (low_Te >= static_cast<int>(log_temperature.size())-1) {
           // Te out of bounds on high side
 
           if (!warned_te_range) {
             // Print warning the first time this occurs
-            std::cerr << "WARNING (Atomicpp::RateCoefficient): log Te too high (" <<  eval_log10_Te << " > " << *log_temperature.end() << ")\n";
+            std::cerr << "WARNING (Atomicpp::RateCoefficient): log Te too high (" <<  eval_log10_Te << " > " << *log_temperature.rbegin() << ")\n";
+            std::cerr << "Te, Ne: " << eval_Te << ", " << eval_Ne << endl;
             warned_te_range = true;
           }
           eval_log10_Te = *log_temperature.rbegin(); // Last element
@@ -78,16 +80,18 @@ double RateCoefficient::call0D(const int k, const double eval_Te, const double e
 
           if (!warned_te_range) {
             std::cerr << "WARNING (Atomicpp::RateCoefficient): log Te too low (" <<  eval_log10_Te << " < " << *log_temperature.begin() << ")\n";
+            std::cerr << "Te, Ne: " << eval_Te << ", " << eval_Ne << endl;
             warned_te_range = true;
           }
           eval_log10_Te = *log_temperature.begin();
           low_Te = 0;
         }
         
-	if (low_Ne >= log_density.size()-1) {
+	if (low_Ne >= static_cast<int>(log_density.size())-1) {
           // Ne out of bounds on high side
           if (!warned_ne_range) {
-            std::cerr << "WARNING (Atomicpp::RateCoefficient): log Ne too high (" <<  eval_log10_Ne << " > " << *log_density.end() << ")\n";
+            std::cerr << "WARNING (Atomicpp::RateCoefficient): log Ne too high (" <<  eval_log10_Ne << " > " << *log_density.rbegin() << ")\n";
+            std::cerr << "Te, Ne: " << eval_Te << ", " << eval_Ne << endl;
             warned_ne_range = true;
           }
           eval_log10_Ne = *log_density.rbegin(); // Last element
@@ -97,6 +101,7 @@ double RateCoefficient::call0D(const int k, const double eval_Te, const double e
           // Ne out of bounds on low side
           if (!warned_ne_range) {
             std::cerr << "WARNING (Atomicpp::RateCoefficient): log Ne too low (" <<  eval_log10_Ne << " < " << *log_density.begin() << ")\n";
+            std::cerr << "Te, Ne: " << eval_Te << ", " << eval_Ne << endl;
             warned_ne_range = true;
           }
           eval_log10_Ne = *log_density.begin();

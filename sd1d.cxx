@@ -426,6 +426,11 @@ protected:
 
     Field3D Te = 0.5 * P / Ne; // Assuming Te = Ti
 
+    for (auto &i : Te.getRegion("RGN_NOBNDRY")) {
+      if (Te[i] > 10.)
+        Te[i] = 10.;
+    }
+    
     Field3D Nnlim;
     Field3D Tn;
     if (atomic) {
@@ -827,7 +832,7 @@ protected:
 
         if (impurity_adas) {
           Rzrad.allocate();
-          for (auto &i : Rzrad) {
+          for (auto &i : Rzrad.getRegion("RGN_NOY")) {
             // Calculate cell centre (C), left (L) and right (R) values
 
             BoutReal Te_C = Te[i],
