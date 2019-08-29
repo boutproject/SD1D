@@ -1306,8 +1306,12 @@ protected:
 
       TRACE("ddt(Nn)");
 
+      Field3D an = sqrt(2.*Tn);
+      
       if (rhs_explicit) {
-        ddt(Nn) = -Div_par_FV(Nn, Vn) // Advection
+        ddt(Nn) =
+          -Div_par_FV_FS(Nn, Vn, an, true)
+          // -Div_par_FV(Nn, Vn) // Advection
                   + S                 // Source from recombining plasma
                   - nloss * Nn        // Loss of neutrals from the system
             ;
@@ -1339,7 +1343,9 @@ protected:
         TRACE("ddt(NVn)");
 
         if (rhs_explicit) {
-          ddt(NVn) = -Div_par_FV(NVn, Vn) // Momentum flow
+          ddt(NVn) =
+            - Div_par_FV_FS(NVn, Vn, an, true)
+            //-Div_par_FV(NVn, Vn) // Momentum flow
                      + F                  // Friction with plasma
                      - nloss * NVn        // Loss of neutrals from the system
                      - Grad_par(Pn)       // Pressure gradient
@@ -1389,7 +1395,9 @@ protected:
         TRACE("ddt(Pn)");
 
         if (rhs_explicit) {
-          ddt(Pn) += -Div_par_FV(Pn, Vn)           // Advection
+          ddt(Pn) +=
+            - Div_par_FV_FS(Pn, Vn, an, true)
+            //-Div_par_FV(Pn, Vn)           // Advection
                      - (2. / 3) * Pn * Div_par(Vn) // Compression
                      + (2. / 3) * E // Energy transferred to neutrals
                      - nloss * Pn   // Loss of neutrals from the system
