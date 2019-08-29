@@ -1154,7 +1154,7 @@ protected:
           ddt(Ne) += D(Ne, hyper);
         }
 
-        if (rhs_implicit) {
+        if (ADpar > 0.0) {
           ddt(Ne) += ADpar * AddedDissipation(1.0, P, Ne, true);
         }
       }
