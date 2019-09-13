@@ -128,10 +128,8 @@ protected:
 
     OPTION(opt, gamma_sound, 5. / 3); // Ratio of specific heats
     OPTION(opt, bndry_flux_fix, false);
-
-    // Read the flux-tube area from input file
-    // This goes into the Jacobian.
-    string area_string;
+    
+    // Field factory for generating fields from strings
     FieldFactory ffact(mesh);
 
     // Calculate normalisation factors
@@ -162,8 +160,18 @@ protected:
       Options *optpe = Options::getRoot()->getSection("P");
       optpe->get("source", source_string, "0.0");
       PeSource = ffact.create2D(source_string, optpe);
+      
+      // If the mesh file contains a source_weight variable, scale sources
+      Field2D source_weight; 
+      if (mesh->get(source_weight, "source_weight") == 0) {
+        // Does have the source function in the input
+        output_info.write("Multiplying density and pressure sources by source_weight from mesh\n");
+        NeSource *= source_weight;
+        PeSource *= source_weight;
+      }
+      
       SAVE_ONCE(PeSource);
-
+      
       // Normalise sources
       NeSource /= Nnorm * Omega_ci;
       PeSource /= SI::qe * Nnorm * Tnorm * Omega_ci;
@@ -241,8 +249,11 @@ protected:
     // Load the metric tensor
     LoadMetric(rho_s0, Bnorm);
 
-    opt->get("area", area_string, "1.0");
-    mesh->getCoordinates()->J = ffact.create2D(area_string, Options::getRoot());
+    if ( opt->isSet("area") ) {
+      // Area set in the input file. Overwrite any Jacobian from the mesh
+      mesh->getCoordinates()->J = ffact.create2D((*opt)["area"].as<std::string>(),
+                                                 Options::getRoot());
+    }
 
     dy4 = SQ(SQ(mesh->getCoordinates()->dy));
 
