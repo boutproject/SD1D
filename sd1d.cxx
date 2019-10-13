@@ -41,6 +41,7 @@
 #include <derivs.hxx>
 #include <field_factory.hxx>
 #include <invert_parderiv.hxx>
+#include <bout/snb.hxx>
 
 #include "div_ops.hxx"
 #include "loadmetric.hxx"
@@ -49,6 +50,8 @@
 // OpenADAS interface Atomicpp by T.Body
 #include "atomicpp/ImpuritySpecies.hxx"
 #include "atomicpp/Prad.hxx"
+
+using bout::HeatFluxSNB;
 
 class SD1D : public PhysicsModel {
 protected:
@@ -107,7 +110,12 @@ protected:
     OPTION(opt, viscos, -1);            // Parallel viscosity
     OPTION(opt, ion_viscosity, false);  // Braginskii parallel viscosity
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
-
+    snb_model = (*opt)["snb_model"].doc("Use SNB non-local heat flux model").withDefault<bool>(false);
+    if (snb_model) {
+      // Create a solver to calculate the SNB heat flux
+      snb = new HeatFluxSNB();
+    }
+    
     OPTION(opt, charge_exchange, true);
     OPTION(opt, charge_exchange_escape, false);
     OPTION(opt, charge_exchange_return_fE, 1.0);
@@ -120,10 +128,8 @@ protected:
 
     OPTION(opt, gamma_sound, 5. / 3); // Ratio of specific heats
     OPTION(opt, bndry_flux_fix, false);
-
-    // Read the flux-tube area from input file
-    // This goes into the Jacobian.
-    string area_string;
+    
+    // Field factory for generating fields from strings
     FieldFactory ffact(mesh);
 
     // Calculate normalisation factors
@@ -154,8 +160,18 @@ protected:
       Options *optpe = Options::getRoot()->getSection("P");
       optpe->get("source", source_string, "0.0");
       PeSource = ffact.create2D(source_string, optpe);
+      
+      // If the mesh file contains a source_weight variable, scale sources
+      Field2D source_weight; 
+      if (mesh->get(source_weight, "source_weight") == 0) {
+        // Does have the source function in the input
+        output_info.write("Multiplying density and pressure sources by source_weight from mesh\n");
+        NeSource *= source_weight;
+        PeSource *= source_weight;
+      }
+      
       SAVE_ONCE(PeSource);
-
+      
       // Normalise sources
       NeSource /= Nnorm * Omega_ci;
       PeSource /= SI::qe * Nnorm * Tnorm * Omega_ci;
@@ -233,8 +249,11 @@ protected:
     // Load the metric tensor
     LoadMetric(rho_s0, Bnorm);
 
-    opt->get("area", area_string, "1.0");
-    mesh->getCoordinates()->J = ffact.create2D(area_string, Options::getRoot());
+    if ( opt->isSet("area") ) {
+      // Area set in the input file. Overwrite any Jacobian from the mesh
+      mesh->getCoordinates()->J = ffact.create2D((*opt)["area"].as<std::string>(),
+                                                 Options::getRoot());
+    }
 
     dy4 = SQ(SQ(mesh->getCoordinates()->dy));
 
@@ -263,9 +282,14 @@ protected:
 	SAVE_REPEAT(flux_ion);   // Flux of ions to target
       }
     }
-    if (heat_conduction)
+    if (heat_conduction) {
       SAVE_REPEAT(kappa_epar); // Save coefficient of thermal conduction
-
+      
+      if (snb_model) {
+        SAVE_REPEAT(Div_Q_SH, Div_Q_SNB);
+      }
+    }
+    
     bool diagnose;
     OPTION(opt, diagnose, true);
     if (diagnose) {
@@ -292,6 +316,16 @@ protected:
       }
 
       SAVE_REPEAT(Vi);
+    }
+
+    if ( (*opt)["output_ddt"].withDefault<bool>(false) ) {
+      SAVE_REPEAT(ddt(Ne), ddt(P), ddt(NVi));
+      if (atomic) {
+        SAVE_REPEAT(ddt(Nn), ddt(Pn));
+        if (evolve_nvn) {
+          SAVE_REPEAT(ddt(NVn));
+        }
+      }
     }
 
     if (ion_viscosity)
@@ -403,6 +437,11 @@ protected:
 
     Field3D Te = 0.5 * P / Ne; // Assuming Te = Ti
 
+    for (auto &i : Te.getRegion("RGN_NOBNDRY")) {
+      if (Te[i] > 10.)
+        Te[i] = 10.;
+    }
+    
     Field3D Nnlim;
     Field3D Tn;
     if (atomic) {
@@ -796,18 +835,55 @@ protected:
       // Atomic physics
       TRACE("Atomic");
 
+      // Lower floor on Nn for atomic rates
+      Field3D Nnlim2 = floor(Nn, 0.0);
+      
       if (fimp > 0.0) {
         // Impurity radiation
 
         if (impurity_adas) {
           Rzrad.allocate();
-          for (auto &i : Rzrad) {
-            Rzrad[i] = computeRadiatedPower(
-                *impurity,
-                Te[i] * Tnorm,        // electron temperature [eV]
-                Ne[i] * Nnorm,        // electron density [m^-3]
-                fimp * Ne[i] * Nnorm, // impurity density [m^-3]
-                Nn[i] * Nnorm);       // Neutral density [m^-3]
+          for (auto &i : Rzrad.getRegion("RGN_NOY")) {
+            // Calculate cell centre (C), left (L) and right (R) values
+
+            BoutReal Te_C = Te[i],
+              Te_L = 0.5 * (Te[i.ym()] + Te[i]),
+              Te_R = 0.5 * (Te[i] + Te[i.yp()]);
+            BoutReal Ne_C = Ne[i],
+              Ne_L = 0.5 * (Ne[i.ym()] + Ne[i]),
+              Ne_R = 0.5 * (Ne[i] + Ne[i.yp()]);
+            BoutReal Nn_C = Nnlim2[i],
+              Nn_L = 0.5 * (Nnlim2[i.ym()] + Nnlim2[i]),
+              Nn_R = 0.5 * (Nnlim2[i] + Nnlim2[i.yp()]);
+            
+            BoutReal Rz_L = computeRadiatedPower(*impurity,
+                                                 Te_L * Tnorm,        // electron temperature [eV]
+                                                 Ne_L * Nnorm,        // electron density [m^-3]
+                                                 fimp * Ne_L * Nnorm, // impurity density [m^-3]
+                                                 Nn_L * Nnorm);       // Neutral density [m^-3]
+
+            BoutReal Rz_C = computeRadiatedPower(*impurity,
+                                                 Te_C * Tnorm,        // electron temperature [eV]
+                                                 Ne_C * Nnorm,        // electron density [m^-3]
+                                                 fimp * Ne_C * Nnorm, // impurity density [m^-3]
+                                                 Nn_C * Nnorm);       // Neutral density [m^-3]
+
+            BoutReal Rz_R = computeRadiatedPower(*impurity,
+                                                 Te_R * Tnorm,        // electron temperature [eV]
+                                                 Ne_R * Nnorm,        // electron density [m^-3]
+                                                 fimp * Ne_R * Nnorm, // impurity density [m^-3]
+                                                 Nn_R * Nnorm);       // Neutral density [m^-3]
+
+
+            // Jacobian (Cross-sectional area)
+            BoutReal J_C = coord->J[i],
+              J_L = 0.5 * (coord->J[i.ym()] + coord->J[i]),
+              J_R = 0.5 * (coord->J[i] + coord->J[i.yp()]);
+
+            // Simpson's rule, calculate average over cell
+            Rzrad[i] = (J_L * Rz_L +
+                        4. * J_C * Rz_C +
+                        J_R * Rz_R) / (6. * J_C);
           }
         } else {
           Rzrad = rad->power(Te * Tnorm, Ne * Nnorm,
@@ -817,9 +893,6 @@ protected:
       } // else Rzrad = 0.0 set in init()
 
       E = 0.0; // Energy transfer to neutrals
-
-      // Lower floor on Nn for atomic rates
-      Field3D Nnlim2 = floor(Nn, 0.0);
 
       for (int i = 0; i < mesh->LocalNx; i++)
         for (int j = mesh->ystart; j <= mesh->yend; j++)
@@ -1092,7 +1165,7 @@ protected:
           ddt(Ne) += D(Ne, hyper);
         }
 
-        if (rhs_implicit) {
+        if (ADpar > 0.0) {
           ddt(Ne) += ADpar * AddedDissipation(1.0, P, Ne, true);
         }
       }
@@ -1188,7 +1261,24 @@ protected:
 
       if (rhs_implicit) {
         if (heat_conduction) {
-          ddt(P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, Te);
+          if (snb_model) {
+            // SNB non-local heat flux. Also returns the Spitzer-Harm value for comparison
+            // Note: Te in eV, Ne in Nnorm
+            Field2D dy_orig = mesh->getCoordinates()->dy;
+            mesh->getCoordinates()->dy *= rho_s0; // Convert distances to m
+            Div_Q_SNB = snb->divHeatFlux(Te * Tnorm, Ne * Nnorm, &Div_Q_SH);
+            mesh->getCoordinates()->dy = dy_orig;
+            
+            // Normalise from eV/m^3/s
+            Div_Q_SNB /= Tnorm * Nnorm * Omega_ci;
+            Div_Q_SH /= Tnorm * Nnorm * Omega_ci;
+
+            // Add to pressure equation
+            ddt(P) -= (2. / 3) * Div_Q_SNB;
+          } else {
+            // The standard Spitzer-Harm model
+            ddt(P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, Te);
+          } 
         }
         if (anomalous_D > 0.0) {
           ddt(P) += Div_par_diffusion(anomalous_D * 2. * Te, Ne);
@@ -1227,8 +1317,12 @@ protected:
 
       TRACE("ddt(Nn)");
 
+      Field3D an = sqrt(2.*Tn);
+      
       if (rhs_explicit) {
-        ddt(Nn) = -Div_par_FV(Nn, Vn) // Advection
+        ddt(Nn) =
+          -Div_par_FV_FS(Nn, Vn, an, true)
+          // -Div_par_FV(Nn, Vn) // Advection
                   + S                 // Source from recombining plasma
                   - nloss * Nn        // Loss of neutrals from the system
             ;
@@ -1260,7 +1354,9 @@ protected:
         TRACE("ddt(NVn)");
 
         if (rhs_explicit) {
-          ddt(NVn) = -Div_par_FV(NVn, Vn) // Momentum flow
+          ddt(NVn) =
+            - Div_par_FV_FS(NVn, Vn, an, true)
+            //-Div_par_FV(NVn, Vn) // Momentum flow
                      + F                  // Friction with plasma
                      - nloss * NVn        // Loss of neutrals from the system
                      - Grad_par(Pn)       // Pressure gradient
@@ -1310,7 +1406,9 @@ protected:
         TRACE("ddt(Pn)");
 
         if (rhs_explicit) {
-          ddt(Pn) += -Div_par_FV(Pn, Vn)           // Advection
+          ddt(Pn) +=
+            - Div_par_FV_FS(Pn, Vn, an, true)
+            //-Div_par_FV(Pn, Vn)           // Advection
                      - (2. / 3) * Pn * Div_par(Vn) // Compression
                      + (2. / 3) * E // Energy transferred to neutrals
                      - nloss * Pn   // Loss of neutrals from the system
@@ -1654,7 +1752,10 @@ private:
   Field3D eta_i;        // Braginskii ion viscosity
   bool ion_viscosity;   // Braginskii ion viscosity on/off
   bool heat_conduction; // Thermal conduction on/off
-
+  bool snb_model;       // Use the SNB model for heat conduction?
+  HeatFluxSNB *snb;
+  Field3D Div_Q_SH, Div_Q_SNB; // Divergence of heat flux from Spitzer-Harm and SNB
+  
   bool charge_exchange; // Charge exchange between plasma and neutrals. Doesn't
                         // affect neutral diffusion
   bool charge_exchange_escape; // Charge-exchange momentum lost from plasma, not

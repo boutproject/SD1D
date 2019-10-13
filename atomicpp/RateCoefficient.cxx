@@ -7,10 +7,11 @@
 
 #include "RateCoefficient.hxx"
 #include "sharedFunctions.hxx"
-using namespace std; //saves having to prepend std:: onto common functions
 
 #include <algorithm> //for upper/lower_bound
 #include <typeinfo>
+
+using namespace std;
 
 // for convenience
 using json = nlohmann::json;
@@ -52,8 +53,9 @@ double RateCoefficient::call0D(const int k, const double eval_Te, const double e
 	
 	// Perform a basic interpolation based on linear distance
 	// values to search for
-	double eval_log10_Te = log10(eval_Te);
-	double eval_log10_Ne = log10(eval_Ne);
+  
+  double eval_log10_Te = log10(eval_Te < 1e-5 ? 1e-5 : eval_Te);
+  double eval_log10_Ne = log10(eval_Ne < 1e-5 ? 1e-5 : eval_Ne);
 	// Look through the log_temperature and log_density attributes of RateCoefficient to find nearest (strictly lower)
 	// Subtract 1 from answer to account for indexing from 0
 	int low_Te = lower_bound(log_temperature.begin(), log_temperature.end(), eval_log10_Te) - log_temperature.begin() - 1;
@@ -61,41 +63,45 @@ double RateCoefficient::call0D(const int k, const double eval_Te, const double e
 
 	// Bounds checking -- make sure you haven't dropped off the end of the array
         // An easy error to make is supplying the function arguments already having taken the log10
-        if (low_Te == log_temperature.size()-1) {
+        if (low_Te >= static_cast<int>(log_temperature.size())-1) {
           // Te out of bounds on high side
 
           if (!warned_te_range) {
             // Print warning the first time this occurs
-            std::cerr << "WARNING (Atomicpp::RateCoefficient): log Te too high (" <<  eval_log10_Te << " > " << *log_temperature.end() << ")\n";
+            std::cerr << "WARNING (Atomicpp::RateCoefficient): log Te too high (" <<  eval_log10_Te << " > " << *log_temperature.rbegin() << ")\n";
+            std::cerr << "Te, Ne: " << eval_Te << ", " << eval_Ne << endl;
             warned_te_range = true;
           }
-          eval_log10_Te = *log_temperature.end();
-          low_Te == log_temperature.size()-2;
+          eval_log10_Te = *log_temperature.rbegin(); // Last element
+          low_Te = log_temperature.size()-2;
           
-        } else if (low_Te == -1) {
+        } else if (low_Te <= -1) {
           // Te out of bounds on low side
 
           if (!warned_te_range) {
             std::cerr << "WARNING (Atomicpp::RateCoefficient): log Te too low (" <<  eval_log10_Te << " < " << *log_temperature.begin() << ")\n";
+            std::cerr << "Te, Ne: " << eval_Te << ", " << eval_Ne << endl;
             warned_te_range = true;
           }
           eval_log10_Te = *log_temperature.begin();
           low_Te = 0;
         }
         
-	if (low_Ne == log_density.size()-1) {
+	if (low_Ne >= static_cast<int>(log_density.size())-1) {
           // Ne out of bounds on high side
           if (!warned_ne_range) {
-            std::cerr << "WARNING (Atomicpp::RateCoefficient): log Ne too high (" <<  eval_log10_Ne << " > " << *log_density.end() << ")\n";
+            std::cerr << "WARNING (Atomicpp::RateCoefficient): log Ne too high (" <<  eval_log10_Ne << " > " << *log_density.rbegin() << ")\n";
+            std::cerr << "Te, Ne: " << eval_Te << ", " << eval_Ne << endl;
             warned_ne_range = true;
           }
-          eval_log10_Ne = *log_density.end();
+          eval_log10_Ne = *log_density.rbegin(); // Last element
           low_Ne = log_density.size()-2;
           
-        } else if (low_Ne == -1) {
+        } else if (low_Ne <= -1) {
           // Ne out of bounds on low side
           if (!warned_ne_range) {
             std::cerr << "WARNING (Atomicpp::RateCoefficient): log Ne too low (" <<  eval_log10_Ne << " < " << *log_density.begin() << ")\n";
+            std::cerr << "Te, Ne: " << eval_Te << ", " << eval_Ne << endl;
             warned_ne_range = true;
           }
           eval_log10_Ne = *log_density.begin();
@@ -122,17 +128,8 @@ double RateCoefficient::call0D(const int k, const double eval_Te, const double e
 	double eval_log10_coeff =
 	(log_coeff[k][low_Te][low_Ne]*(1-y) + log_coeff[k][low_Te][high_ne]*y)*(1-x)
 	+(log_coeff[k][high_Te][low_Ne]*(1-y) + log_coeff[k][high_Te][high_ne]*y)*x;
+
 	double eval_coeff = pow(10,eval_log10_coeff);
-	// // Print inspection
-	// cout << endl;
-	// cout << "00 - log Te: " << log_temperature[low_Te] << " log ne: " << log_density[low_Ne] << " value: " << log_coeff[k][low_Te][low_Ne] << endl;
-	// cout << "10 - log Te: " << log_temperature[high_Te] << " log ne: " << log_density[low_Ne] << " value: " << log_coeff[k][high_Te][low_Ne] << endl;
-	// cout << "01 - log Te: " << log_temperature[low_Te] << " log ne: " << log_density[high_ne] << " value: " << log_coeff[k][low_Te][high_ne] << endl;
-	// cout << "11 - log Te: " << log_temperature[high_Te] << " log ne: " << log_density[high_ne] << " value: " << log_coeff[k][high_Te][high_ne] << endl;
-	// cout << "xy - log Te: " << eval_log10_Te << " log ne: " << eval_log10_Ne << " value: " << eval_log10_coeff << endl;
-	// cout << "x: " << x << " y: " << y << endl;
-	// cout << endl;
-	
 	return eval_coeff;
 };
 int RateCoefficient::get_atomic_number(){
