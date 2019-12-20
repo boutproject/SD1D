@@ -73,6 +73,7 @@ protected:
     OPTION(opt, nloss, 0.0);    // Neutral gas loss rate
     OPTION(opt, fimp,  0.01);   // 1% impurity
     OPTION(opt, Eionize,   30);     // Energy loss per ionisation (30eV)
+    OPTION(opt, symmetry_plane, true); // Sheath heat transmission
     OPTION(opt, sheath_gamma, 6.5); // Sheath heat transmission
     OPTION(opt, neutral_gamma, 0.25); // Neutral heat transmission
     
@@ -169,17 +170,58 @@ protected:
 
       density_error_lasttime = -1.0;  // Signal no value
 
+      if (not symmetry_plane) {
+        // Need to control density at the mid-point, so find if the mid-point or
+        // either/both mid-points are on this processor
+
+        if (not volume_source) {
+          throw BoutException("Using symmetry_plane=false requires volume_source=true");
+        }
+
+        // Note GlobalNy includes boundary cells, but YLOCAL takes a global index that
+        // does not include boundary cells
+        if (mesh->GlobalNy%2 == 0) {
+          // even number of grid points, so two symmetric mid-points
+          //mid_point1 = mesh->YLOCAL(mesh->GlobalNy/2 - mesh->ystart - 1); // requires BOUT++ v4.2
+          mid_point1 = (mesh->GlobalNy/2 - mesh->ystart - 1) % (mesh->LocalNy - 2*mesh->ystart);
+          if (mid_point1 < mesh->ystart or mid_point1 > mesh->yend) {
+            mid_point1 = -1;
+          }
+          mid_point_proc1 = (mesh->GlobalNy/2 - mesh->ystart - 1)
+                            /(mesh->LocalNy - 2*mesh->ystart);
+          //mid_point2 = mesh->YLOCAL(mesh->GlobalNy/2 - mesh->ystart); // requires BOUT++ v4.2
+          mid_point2 = (mesh->GlobalNy/2 - mesh->ystart) % (mesh->LocalNy - 2*mesh->ystart);
+          if (mid_point2 < mesh->ystart or mid_point2 > mesh->yend) {
+            mid_point2 = -1;
+          }
+          mid_point_proc2 = (mesh->GlobalNy/2 - mesh->ystart)
+                            /(mesh->LocalNy - 2*mesh->ystart);
+        } else {
+          // odd number of grid points, so single mid-point
+          //mid_point1 = mesh->YLOCAL(mesh->GlobalNy/2 - mesh->ystart); // requires BOUT++ v4.2
+          mid_point1 = (mesh->GlobalNy/2 - mesh->ystart) % (mesh->LocalNy - 2*mesh->ystart);
+          if (mid_point1 < mesh->ystart or mid_point1 > mesh->yend) {
+            mid_point1 = -1;
+          }
+          mid_point_proc1 = (mesh->GlobalNy/2 - mesh->ystart)
+                            /(mesh->LocalNy - 2*mesh->ystart);
+        }
+      }
+
       // Save and load error integral from file, since
       // this determines the source function
       solver->addToRestart(density_error_integral, "density_error_integral");
+      solver->addToRestart(density_error_integral2, "density_error_integral2");
       
       if(!restarting) {
         density_error_integral = 0.0;
+        density_error_integral2 = 0.0;
         
         if(volume_source) {
           // Set density_error_integral so that
           // the input source is used
           density_error_integral = 1./density_controller_i;
+          density_error_integral2 = 1./density_controller_i;
         }
       }
     }
@@ -612,22 +654,165 @@ protected:
       }
     }
     
-    for(RangeIterator r=mesh->iterateBndryLowerY(); !r.isDone(); r++) {
-      // No-flow boundary condition on left boundary
-      
-      for(int jz=0; jz<mesh->LocalNz; jz++) {
-        for(int jy=0; jy<mesh->ystart; jy++) {
-          Te(r.ind, jy, jz) = Te(r.ind, mesh->ystart, jz);
-          Ne(r.ind, jy, jz) = Ne(r.ind, mesh->ystart, jz);
-          P(r.ind, jy, jz) = P(r.ind, mesh->ystart, jz);
-          Vi(r.ind, jy, jz) = -Vi(r.ind, mesh->ystart, jz);
-          NVi(r.ind, jy, jz) = -NVi(r.ind, mesh->ystart, jz);
+    if (symmetry_plane) {
+      for(RangeIterator r=mesh->iterateBndryLowerY(); !r.isDone(); r++) {
+        // No-flow boundary condition on left boundary
+        
+        for(int jz=0; jz<mesh->LocalNz; jz++) {
+          for(int jy=0; jy<mesh->ystart; jy++) {
+            Te(r.ind, jy, jz) = Te(r.ind, mesh->ystart, jz);
+            Ne(r.ind, jy, jz) = Ne(r.ind, mesh->ystart, jz);
+            P(r.ind, jy, jz) = P(r.ind, mesh->ystart, jz);
+            Vi(r.ind, jy, jz) = -Vi(r.ind, mesh->ystart, jz);
+            NVi(r.ind, jy, jz) = -NVi(r.ind, mesh->ystart, jz);
+            
+            if(atomic) {
+              Vn(r.ind, jy, jz) = -Vn(r.ind, mesh->ystart, jz);
+              Nn(r.ind, jy, jz) = Nn(r.ind, jy, jz);
+              Pn(r.ind, jy, jz) = Pn(r.ind, jy, jz);
+              Tn(r.ind, jy, jz) = Tn(r.ind, jy, jz);
+            }
+          }
+        }
+      }
+    } else {
+      for(RangeIterator r=mesh->iterateBndryLowerY(); !r.isDone(); r++) {
+        int jz = 0;
+        
+        // Outward flow velocity to >= Cs
+        BoutReal Vout = -sqrt(2.0*Te(r.ind, mesh->ystart, jz)); // Sound speed outwards
+        if(Vi(r.ind, mesh->ystart, jz) > Vout)
+          Vout = Vi(r.ind, mesh->ystart, jz); // If plasma is faster, go to plasma velocity
+        
+        BoutReal Nout;
+        switch( density_sheath ) {
+        case 0: {
+          // Free boundary on density (constant gradient)
+          Nout = 0.5*( 3.*Ne(r.ind, mesh->ystart, jz) - Ne(r.ind, mesh->ystart+1, jz) );
+          break;
+        }
+        case 1: {
+          // Zero gradient
+          Nout = Ne(r.ind, mesh->ystart, jz); 
+          break;
+        }
+        case 2: {
+          // Zero gradient particle flux N*Vi* J*dx*dz
+          // Since Vi increases into the sheath, density should drop
+          Nout = Ne(r.ind, mesh->ystart, jz) * coord->J(r.ind, mesh->ystart) * Vi(r.ind, mesh->ystart, jz) / (0.5*(coord->J(r.ind, mesh->ystart) + coord->J(r.ind, mesh->ystart-1)) * Vout);
+          break;
+        }
+        default: throw BoutException("Unrecognised density_sheath option");
+        }
+        
+        if(Nout < 0.0)
+          Nout = 0.0; // Prevent Nout from going negative -> Flux is always to the wall
+        
+        // Flux of particles is Ne*Vout
+        BoutReal flux = Nout * Vout;
+        
+        BoutReal Pout;
+        
+        switch( pressure_sheath ) {
+        case 0: {
+          // Free boundary  (constant gradient)
+          Pout = 0.5*( 3.*P(r.ind, mesh->ystart, jz) - P(r.ind, mesh->ystart+1, jz) );
+          break;
+        }
+        case 1: {
+          // Zero gradient
+          Pout = P(r.ind, mesh->ystart, jz); 
+          break;
+        }
+        case 2: {
+          // Use energy flux conservation to set pressure
+          // (5/2)Pv + (1/2)nv^3 = const
+          // 
+          Pout = ((5.*P(r.ind,mesh->ystart,jz)*Vi(r.ind,mesh->ystart,jz) + Ne(r.ind,mesh->ystart,jz)*pow(Vi(r.ind,mesh->ystart,jz),3))/Vout - Nout*Vout*Vout)/5.;
+          break;
+        }
+        default: throw BoutException("Unrecognised pressure_sheath option");
+        }
+
+        if(Pout < 0.0)
+          Pout = 0.0;
+        
+        if(rhs_explicit && (!nonlocal_conduction)) {
+          // Additional cooling
+          // If nonlocal heat conduction is used then this is
+          // already included.
+          BoutReal q = (sheath_gamma - 6) * Te(r.ind, mesh->ystart, jz) * flux;
+          
+          // Multiply by cell area to get power
+          BoutReal heatflux = q * (coord->J(r.ind, mesh->ystart)+coord->J(r.ind, mesh->ystart-1))/(sqrt(coord->g_22(r.ind, mesh->ystart)) + sqrt(coord->g_22(r.ind, mesh->ystart-1)));
+          
+          // Divide by volume of cell, and 2/3 to get pressure
+          ddt(P)(r.ind, mesh->ystart, jz) -= (2./3)*heatflux / (coord->dy(r.ind, mesh->ystart)*coord->J(r.ind, mesh->ystart));
+        }
+        
+        // Set boundary half-way between cells
+        for(int jy=mesh->ystart-1; jy>0; jy--) {
+          
+          ///// Plasma model
+          
+          // Vi fixed value (Dirichlet)
+          Vi(r.ind, jy, jz)  = 2.*Vout - Vi(r.ind, mesh->ystart, jz);
+          
+          // Ne set from flux (Dirichlet)
+          Ne(r.ind, jy, jz)  = 2*Nout - Ne(r.ind, mesh->ystart, jz);
+          
+          // NVi. This can be positive, so set this to the flux
+          // going out of the domain (zero gradient)
+          NVi(r.ind, jy, jz) = Nout * Vout;
+          //NVi(r.ind, jy, jz) = Ne(r.ind, jy, jz)  * Vi(r.ind, jy, jz);        
+          //NVi(r.ind, jy, jz) = 2.*Nout * Vout - NVi(r.ind, mesh->ystart, jz);
+
+          
+          if (nonlocal_conduction) {
+            // Constant gradient
+            Te(r.ind, jy, jz) = 2.*Te(r.ind, mesh->ystart, jz) - Te(r.ind, mesh->ystart+1, jz);
+          } else {
+            // Te zero gradient (Neumann)
+            Te(r.ind, jy, jz) = Te(r.ind, mesh->ystart, jz);
+          }
+          
+          P(r.ind, jy, jz) = 2.*Pout - P(r.ind, mesh->ystart, jz);
           
           if(atomic) {
-            Vn(r.ind, jy, jz) = -Vn(r.ind, mesh->ystart, jz);
-            Nn(r.ind, jy, jz) = Nn(r.ind, jy, jz);
-            Pn(r.ind, jy, jz) = Pn(r.ind, jy, jz);
-            Tn(r.ind, jy, jz) = Tn(r.ind, jy, jz);
+            ///// Neutral model
+            // Flux of neutral particles, momentum, and energy are set later
+            // Here the neutral velocity is set to no-flow conditions
+            
+            // Vn fixed value (Dirichlet)
+            Vn(r.ind, jy, jz)  = - Vn(r.ind, mesh->ystart, jz);
+            
+            // Nn free boundary (constant gradient)
+            Nn(r.ind, jy, jz) = 2.*Nn(r.ind, mesh->ystart, jz) - Nn(r.ind, mesh->ystart+1, jz);
+            
+            if(evolve_pn) {
+              // Tn fixed value (Dirichlet)
+              //Tn(r.ind, jy, jz) = 3.5/Tnorm - Tn(r.ind, mesh->ystart, jz);
+              
+              // Tn zero gradient. Heat flux set by gamma
+              Tn(r.ind, jy, jz) = Tn(r.ind, mesh->ystart, jz);
+              
+              if(rhs_explicit && (neutral_gamma > 0.0)) {
+                // Density at the target
+                BoutReal Nnout = 0.5*(Nn(r.ind, mesh->ystart, jz) + Nn(r.ind, mesh->ystart-1, jz));
+                // gamma * n * T * cs
+                BoutReal q = neutral_gamma * Nnout * Tn(r.ind, jy, jz) * sqrt(Tn(r.ind, jy, jz));
+                
+                // Multiply by cell area to get power
+                BoutReal heatflux = q * (coord->J(r.ind, mesh->ystart)+coord->J(r.ind, mesh->ystart-1))/(sqrt(coord->g_22(r.ind, mesh->ystart)) + sqrt(coord->g_22(r.ind, mesh->ystart-1)));
+                
+                // Divide by volume of cell, and 2/3 to get pressure
+                ddt(Pn)(r.ind, mesh->ystart, jz) -= (2./3)*heatflux / (coord->dy(r.ind, mesh->ystart)*coord->J(r.ind, mesh->ystart));
+              }
+            }else {
+              Tn(r.ind, jy, jz) = Te(r.ind, jy, jz);
+            }
+            Pn(r.ind, jy, jz) = Nn(r.ind, jy, jz) * Tn(r.ind, jy, jz); 
+            NVn(r.ind, jy, jz) = -NVn(r.ind, mesh->ystart, jz);
           }
         }
       }
@@ -635,71 +820,139 @@ protected:
     
     if((density_upstream > 0.0) && rhs_explicit) {
       ///////////////////////////////////////////////
-      // Set velocity on left boundary to set density
+      // Set midplane density
       //
-      // This calculates a source needed in the first grid cell, to relax towards
+      // This calculates a source needed at the midplane grid cell(s), to relax towards
       // the desired density value. 
       //
 
       TRACE("Density upstream");
       
-      BoutReal source;
-      for(RangeIterator r=mesh->iterateBndryLowerY(); !r.isDone(); r++) {
-        int jz = 0;
+      BoutReal source=0., source2=0.;
+      if (symmetry_plane) {
+        for(RangeIterator r=mesh->iterateBndryLowerY(); !r.isDone(); r++) {
+          int jz = 0;
+            
+          // Density source, so dn/dt = source
+          BoutReal error = density_upstream - Ne(r.ind, mesh->ystart, jz);
           
-        // Density source, so dn/dt = source
-        BoutReal error = density_upstream - Ne(r.ind, mesh->ystart, jz);
-        
-        // PI controller, using crude integral of the error
-        if(density_error_lasttime < 0.0) {
-          // First time
-          density_error_lasttime = time;
-          density_error_last = error;
-        }
-        
-        // Integrate using Trapezium rule
-        if(time > density_error_lasttime) { // Since time can decrease
-          density_error_integral += (time - density_error_lasttime)*
-            0.5*(error + density_error_last);
-        }
-        
-        if((density_error_integral < 0.0) && density_integral_positive) {
-          // Limit density_error_integral to be >= 0
-          density_error_integral = 0.0;
-        }
-        
-        // Calculate source from combination of error and integral
-        source = density_controller_p * error + density_controller_i * density_error_integral;
-        
-        //output.write("\n Source: %e, %e : %e, %e -> %e\n", time, (time - density_error_lasttime), error, density_error_integral, source);
-
-        density_error_last = error;
-        density_error_lasttime = time;
-
-        if(!volume_source) {
-          // Convert source into a flow velocity
-          // through the boundary, based on a zero-gradient boundary on the density.
-          // This ensures that the mass and momentum inputs are consistent,
-          // but also carries energy through the boundary. This flux
-          // of energy is calculated, and subtracted from the pressure equation,
-          // so that the density boundary does not contribute to energy balance.
-          
-          // Calculate needed input velocity
-          BoutReal Vin = source * sqrt(coord->g_22(r.ind, mesh->ystart))*coord->dy(r.ind, mesh->ystart) / Ne(r.ind, mesh->ystart, jz);
-          
-          // Limit at sound speed
-          BoutReal cs = sqrt(Te(r.ind, mesh->ystart, jz));
-          if( fabs(Vin) > cs ) {
-            Vin *= cs / fabs(Vin); // + or - cs
+          // PI controller, using crude integral of the error
+          if(density_error_lasttime < 0.0) {
+            // First time
+            density_error_lasttime = time;
+            density_error_last = error;
           }
-          Vi(r.ind, mesh->ystart-1, jz) = 2.*Vin - Vi(r.ind, mesh->ystart, jz);
           
-          // Power flux is v * (5/2 P + 1/2 m n v^2 )
-          BoutReal inputflux = Vin * ( 2.5 * P(r.ind, mesh->ystart, jz) + 0.5*Ne(r.ind, mesh->ystart, jz) * Vin*Vin );  // W/m^2 (normalised)
+          // Integrate using Trapezium rule
+          if(time > density_error_lasttime) { // Since time can decrease
+            density_error_integral += (time - density_error_lasttime)*
+              0.5*(error + density_error_last);
+          }
           
-          // Subtract input energy flux from P equation
-          // so no net power input
-          ddt(P)(r.ind, mesh->ystart, jz) -= (2./3)*inputflux / ( coord->dy(r.ind, mesh->ystart) * sqrt(coord->g_22(r.ind, mesh->ystart)));
+          if((density_error_integral < 0.0) && density_integral_positive) {
+            // Limit density_error_integral to be >= 0
+            density_error_integral = 0.0;
+          }
+          
+          // Calculate source from combination of error and integral
+          source = density_controller_p * error + density_controller_i * density_error_integral;
+          
+          //output.write("\n Source: %e, %e : %e, %e -> %e\n", time, (time - density_error_lasttime), error, density_error_integral, source);
+
+          density_error_last = error;
+          density_error_lasttime = time;
+
+          if(!volume_source) {
+            // Convert source into a flow velocity
+            // through the boundary, based on a zero-gradient boundary on the density.
+            // This ensures that the mass and momentum inputs are consistent,
+            // but also carries energy through the boundary. This flux
+            // of energy is calculated, and subtracted from the pressure equation,
+            // so that the density boundary does not contribute to energy balance.
+            
+            // Calculate needed input velocity
+            BoutReal Vin = source * sqrt(coord->g_22(r.ind, mesh->ystart))*coord->dy(r.ind, mesh->ystart) / Ne(r.ind, mesh->ystart, jz);
+            
+            // Limit at sound speed
+            BoutReal cs = sqrt(Te(r.ind, mesh->ystart, jz));
+            if( fabs(Vin) > cs ) {
+              Vin *= cs / fabs(Vin); // + or - cs
+            }
+            Vi(r.ind, mesh->ystart-1, jz) = 2.*Vin - Vi(r.ind, mesh->ystart, jz);
+            
+            // Power flux is v * (5/2 P + 1/2 m n v^2 )
+            BoutReal inputflux = Vin * ( 2.5 * P(r.ind, mesh->ystart, jz) + 0.5*Ne(r.ind, mesh->ystart, jz) * Vin*Vin );  // W/m^2 (normalised)
+            
+            // Subtract input energy flux from P equation
+            // so no net power input
+            ddt(P)(r.ind, mesh->ystart, jz) -= (2./3)*inputflux / ( coord->dy(r.ind, mesh->ystart) * sqrt(coord->g_22(r.ind, mesh->ystart)));
+          }
+        }
+      } else {
+        BoutReal error, error2;
+        if (mid_point1 > -1) {
+          int jz = 0;
+            
+          // Density source, so dn/dt = source
+          error = density_upstream - Ne(mesh->xstart, mid_point1, jz);
+          
+          // PI controller, using crude integral of the error
+          if(density_error_lasttime < 0.0) {
+            // First time
+            density_error_lasttime = time;
+            density_error_last = error;
+          }
+          
+          // Integrate using Trapezium rule
+          if(time > density_error_lasttime) { // Since time can decrease
+            density_error_integral += (time - density_error_lasttime)*
+              0.5*(error + density_error_last);
+          }
+          
+          if((density_error_integral < 0.0) && density_integral_positive) {
+            // Limit density_error_integral to be >= 0
+            density_error_integral = 0.0;
+          }
+          
+          // Calculate source from combination of error and integral
+          source = density_controller_p * error + density_controller_i * density_error_integral;
+          
+          //output.write("\n Source: %e, %e : %e, %e -> %e\n", time, (time - density_error_lasttime), error, density_error_integral, source);
+
+          density_error_last = error;
+          density_error_lasttime = time;
+        }
+        if (mid_point2 > -1) {
+          int jz = 0;
+            
+          // Density source, so dn/dt = source
+          error2 = density_upstream - Ne(mesh->xstart, mid_point2, jz);
+          
+          // PI controller, using crude integral of the error
+          if(density_error_lasttime2 < 0.0) {
+            // First time
+            density_error_lasttime2 = time;
+            density_error_last2 = error2;
+          }
+          
+          // Integrate using Trapezium rule
+          if(time > density_error_lasttime2) { // Since time can decrease
+            density_error_integral2 += (time - density_error_lasttime2)*
+              0.5*(error2 + density_error_last2);
+          }
+          
+          if((density_error_integral2 < 0.0) && density_integral_positive) {
+            // Limit density_error_integral to be >= 0
+            density_error_integral2 = 0.0;
+          }
+          
+          // Calculate source from combination of error and integral
+          source2 = density_controller_p * error + density_controller_i * density_error_integral;
+          
+          //output.write("\n Source: %e, %e : %e, %e -> %e\n", time, (time - density_error_lasttime2), error2, density_error_integral2, source);
+
+          density_error_last2 = error2;
+          density_error_lasttime2 = time;
         }
       }
 
@@ -708,8 +961,22 @@ protected:
           source = 0.0; // Don't remove particles
         }
         
-        // Broadcast the value of source from processor 0
-        MPI_Bcast(&source, 1, MPI_DOUBLE, 0, BoutComm::get());
+        if (symmetry_plane) {
+          // Broadcast the value of source from processor 0
+          MPI_Bcast(&source, 1, MPI_DOUBLE, 0, BoutComm::get());
+        } else {
+          // Broadcast the value of source from midplane processor(s)
+          MPI_Bcast(&source, 1, MPI_DOUBLE, mid_point_proc1, BoutComm::get());
+          if (mid_point_proc2 > -1) {
+            if((source2 < 0.0) && density_source_positive) {
+              source2 = 0.0; // Don't remove particles
+            }
+            MPI_Bcast(&source2, 1, MPI_DOUBLE, mid_point_proc2, BoutComm::get());
+
+            // If there are two mid-plane points, average the sources
+            source = (source + source2)/2.;
+          }
+        }
         
         // Scale NeSource
         NeSource = source * NeSource0;
@@ -1146,7 +1413,6 @@ protected:
           nonlocal_parallel->set_V_electron(Vi*Cs0);
           
           // Set boundary condition on heat flux
-          // Zero heat flux at lower Y
           // Calculated from q = gamma e n cs
           Field3D heat_flux_boundary = 0.0;
           for(RangeIterator r=mesh->iterateBndryUpperY(); !r.isDone(); r++) {
@@ -1164,6 +1430,23 @@ protected:
             // Convert to SI units
             heat_flux_boundary(r.ind, mesh->yend, jz) = (Cs0*SI::qe*Tnorm*Nnorm) * q;
           }
+          if (not symmetry_plane) {
+            for(RangeIterator r=mesh->iterateBndryLowerY(); !r.isDone(); r++) {
+              int jz = 0;
+              
+              // Outward flow velocity to >= Cs
+              BoutReal Vout = -sqrt(2.0*Te(r.ind, mesh->ystart, jz)); // Sound speed outwards
+              if(Vi(r.ind, mesh->ystart, jz) > Vout)
+                Vout = Vi(r.ind, mesh->ystart, jz); // If plasma is faster, go to plasma velocity
+
+              BoutReal Nout = 0.5*(Ne(r.ind, mesh->ystart, jz) + Ne(r.ind, mesh->ystart-1, jz));
+              
+              BoutReal flux = Nout * Vout;
+              BoutReal q = (sheath_gamma - 6) * Te(r.ind, mesh->ystart, jz) * flux;
+              // Convert to SI units
+              heat_flux_boundary(r.ind, mesh->ystart, jz) = (Cs0*SI::qe*Tnorm*Nnorm) * q;
+            }
+          } // else: Zero heat flux at lower Y
           
           nonlocal_parallel->set_heat_flux_boundary_condition(heat_flux_boundary);
           
@@ -1409,6 +1692,72 @@ protected:
             ddt(Pn)(mesh->xstart, j, 0) += ncell * (3.5/Tnorm);
           }
         }
+        if (not symmetry_plane) {
+          for(RangeIterator r=mesh->iterateBndryLowerY(); !r.isDone(); r++) {
+            int jz = 0; // Z index
+            int jy = mesh->ystart;
+            //flux_ion = 0.0;
+            flux_ion = 0.25*(Ne(r.ind, jy, jz) + Ne(r.ind, jy-1, jz)) * (Vi(r.ind, jy, jz) + Vi(r.ind, jy-1, jz)) * (coord->J(r.ind,jy) + coord->J(r.ind,jy-1)) / (sqrt(coord->g_22(r.ind,jy))+ sqrt(coord->g_22(r.ind,jy-1)));
+            BoutReal flux_neut = 0.0;
+            
+            for(int j = mesh->ystart-1; j>0; j--) {
+              //flux_ion += ddt(Ne)(r.ind, j, jz) * coord->J(r.ind,j) * coord->dy(r.ind,j);        
+              flux_neut += ddt(Nn)(r.ind, j, jz) * coord->J(r.ind,j) * coord->dy(r.ind,j);
+              
+              ddt(Ne)(r.ind, j, jz) = 0.0;
+              ddt(Nn)(r.ind, j, jz) = 0.0;
+            }
+            
+            // Make sure that mass is conserved
+            
+            // Total amount of neutral gas to be added
+            BoutReal nadd = flux_ion*frecycle + flux_neut + gaspuff;
+            
+            // Neutral gas arriving at the target
+            BoutReal ntarget = (1 - fredistribute) * nadd / ( coord->J(r.ind,mesh->ystart) * coord->dy(r.ind,mesh->ystart) );
+            
+            ddt(Nn)(r.ind, mesh->ystart, jz) += ntarget;
+            
+            if(evolve_nvn) {
+              // Set velocity of neutrals coming from the wall to a fraction of the 
+              // Franck-Condon energy
+              BoutReal Vneut = vwall * sqrt(3.5/Tnorm);
+              ddt(NVn)(r.ind, mesh->ystart, jz) += ntarget* Vneut;
+            }
+            
+            if(evolve_pn) {
+              // Set temperature of the incoming neutrals to F-C
+              ddt(Pn)(r.ind, mesh->ystart, jz) += ntarget * (3.5/Tnorm);
+            }
+            
+            // Re-distribute neutrals
+            nredist = fredistribute * nadd;
+            
+            // Divide flux_ion by J so that the result in the output file has units of flux per m^2
+            flux_ion /= coord->J(mesh->xstart, mesh->ystart-1);
+          }
+          // Now broadcast redistributed neutrals to other processors
+          MPI_Comm ycomm = mesh->getYcomm(mesh->xstart); // MPI communicator
+          
+          // Broadcast from first processor (presumably with target)
+          // to all other processors
+          MPI_Bcast(&nredist, 1, MPI_DOUBLE, 0, ycomm);
+          
+          // Distribute along length
+          for(int j=mesh->ystart;j<=mesh->yend;j++) {
+            // Neutrals into this cell
+            BoutReal ncell = nredist * redist_weight(mesh->xstart,j) / ( coord->J(mesh->xstart,j) * coord->dy(mesh->xstart,j) );
+            
+            ddt(Nn)(mesh->xstart, j, 0) += ncell;
+            
+            // No momentum
+            
+            if(evolve_pn) {
+              // Set temperature of the incoming neutrals to F-C
+              ddt(Pn)(mesh->xstart, j, 0) += ncell * (3.5/Tnorm);
+            }
+          }
+        }
       }
     }
     return 0;
@@ -1621,6 +1970,12 @@ private:
 
   ///////////////////////////////////////////////////////////////
   // Sheath boundary
+
+  bool symmetry_plane;
+  int mid_point1 = -1;
+  int mid_point_proc1 = -1;
+  int mid_point2 = -1;
+  int mid_point_proc2 = -1;
   
   BoutReal sheath_gamma;   // Sheath heat transmission factor
   BoutReal neutral_gamma;  // Neutral heat transmission
@@ -1650,13 +2005,15 @@ private:
   BoutReal powerflux; // Used if no volume sources
   
   // Upstream density controller
-  BoutReal density_upstream;   // The desired density at the lower Y (upstream) boundary
+  BoutReal density_upstream;   // The desired density at the midplane (either lower Y (upstream) boundary, or middle of the domain)
   BoutReal density_controller_p, density_controller_i; // Controller settings
   bool density_integral_positive; // Limit the i term to be positive
   bool density_source_positive; // Limit the source to be positive
 
   BoutReal density_error_lasttime, density_error_last; // Value and time of last error
   BoutReal density_error_integral; // Integral of error
+  BoutReal density_error_lasttime2, density_error_last2; // Value and time of last error at second mid-plane point
+  BoutReal density_error_integral2; // Integral of error at second mid-plane point
   
   ///////////////////////////////////////////////////////////////
   // Numerical dissipation
