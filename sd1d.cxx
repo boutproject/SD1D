@@ -110,7 +110,13 @@ protected:
     OPTION(opt, viscos, -1);            // Parallel viscosity
     OPTION(opt, ion_viscosity, false);  // Braginskii parallel viscosity
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
-    snb_model = (*opt)["snb_model"].doc("Use SNB non-local heat flux model").withDefault<bool>(false);
+    kappa_limit_alpha = (*opt)["kappa_limit_alpha"]
+                            .doc("Flux limiter. Turned off if < 0 (default)")
+                            .withDefault(-1.0);
+
+    snb_model = (*opt)["snb_model"]
+                    .doc("Use SNB non-local heat flux model")
+                    .withDefault<bool>(false);
     if (snb_model) {
       // Create a solver to calculate the SNB heat flux
       snb = new HeatFluxSNB();
@@ -482,6 +488,30 @@ protected:
 
       if (heat_conduction) {
         kappa_epar = 3.2 * mi_me * 0.5 * P * tau_e;
+
+        if (kappa_limit_alpha > 0.0) {
+          /*
+           * Flux limiter, as used in SOLPS.
+           *
+           * Calculate the heat flux from Spitzer-Harm and flux limit
+           *
+           * Typical value of alpha ~ 0.2 for electrons
+           *
+           * R.Schneider et al. Contrib. Plasma Phys. 46, No. 1-2, 3 – 191 (2006)
+           * DOI 10.1002/ctpp.200610001
+           */
+          
+          // Spitzer-Harm heat flux
+          Te.applyBoundary("neumann"); // Note: We haven't yet applied boundaries
+          Field3D q_SH = kappa_epar * Grad_par(Te);
+          Field3D q_fl = kappa_limit_alpha * Nelim * Te * sqrt(mi_me * Te);
+          
+          kappa_epar = kappa_epar / (1. + abs(q_SH / q_fl));
+          
+          // Values of kappa on cell boundaries are needed for fluxes
+          mesh->communicate(kappa_epar);
+        }
+        
         kappa_epar.applyBoundary("neumann");
       }
 
@@ -1752,6 +1782,7 @@ private:
   Field3D eta_i;        // Braginskii ion viscosity
   bool ion_viscosity;   // Braginskii ion viscosity on/off
   bool heat_conduction; // Thermal conduction on/off
+  BoutReal kappa_limit_alpha; // Heat flux limiter. Turned off if < 0
   bool snb_model;       // Use the SNB model for heat conduction?
   HeatFluxSNB *snb;
   Field3D Div_Q_SH, Div_Q_SNB; // Divergence of heat flux from Spitzer-Harm and SNB
