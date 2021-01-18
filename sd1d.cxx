@@ -316,12 +316,12 @@ protected:
             Div_Q_SH /= Tnorm * Nnorm * Omega_ci;
 
             // Add to pressure equation
-            ddt(electrons.P) -= 0.5 * (2. / 3) * Div_Q_SNB;
+            ddt(electrons.P) -= (2. / 3) * Div_Q_SNB * ions.ZZ / (1+ions.ZZ);
           } else {
             // The standard Spitzer-Harm model
-            // NOTE: Factor of 0.5 accounts for instant equipartition of energy between electrons and ions in this Te=Ti assumption,
+            // NOTE: Factor of Z/(1+Z) accounts for instant equipartition of energy between electrons and ions in this Te=Ti assumption,
 
-            ddt(electrons.P) += 0.5 * (2. / 3) * Div_par_diffusion_upwind(kappa_epar, electrons.T);
+            ddt(electrons.P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, electrons.T) * ions.ZZ / (1+ions.ZZ);
         }
       }
 
@@ -330,7 +330,7 @@ protected:
     }
     
     // Equal electron and ion temperatures
-    ddt(ions.P)   += ddt(electrons.P);
+    ddt(ions.P)   += ddt(electrons.P) / ions.ZZ;
     
     return 0;
   }
