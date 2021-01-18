@@ -326,7 +326,7 @@ protected:
       }
 
       // Electron pressure acts on ions
-      ddt(ions.NV) -= Grad_par(ions.P);
+      ddt(ions.NV) -= Grad_par(electrons.P + ions.P);
     }
     
     // Equal electron and ion temperatures
