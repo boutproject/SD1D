@@ -298,7 +298,7 @@ protected:
           
           tau_e = Omega_ci * tau_e0 * pow(electrons.T, 1.5) / electrons.N;
           
-          kappa_epar = 3.2 * mi_me * 0.5 * electrons.P * tau_e;
+          kappa_epar = 3.2 * mi_me * electrons.P * tau_e;
           kappa_epar.applyBoundary("neumann");
           
         }
@@ -323,13 +323,13 @@ protected:
 
             ddt(electrons.P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, electrons.T) * ions.ZZ / (1+ions.ZZ);
         }
-
-        // Equal electron and ion temperatures
-        ddt(ions.P)   += ddt(electrons.P) / ions.ZZ;
       }    
 
       // Electron pressure acts on ions
       ddt(ions.NV) -= Grad_par(electrons.P);
+
+      // Equal electron and ion temperatures
+      ddt(ions.P)   += ddt(electrons.P) / ions.ZZ;
     }
     
     return 0;
