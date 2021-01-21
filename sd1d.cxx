@@ -323,14 +323,14 @@ protected:
 
             ddt(electrons.P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, electrons.T) * ions.ZZ / (1+ions.ZZ);
         }
-      }
+
+        // Equal electron and ion temperatures
+        ddt(ions.P)   += ddt(electrons.P) / ions.ZZ;
+      }    
 
       // Electron pressure acts on ions
-      ddt(ions.NV) -= Grad_par(electrons.P + ions.P);
+      ddt(ions.NV) -= Grad_par(electrons.P);
     }
-    
-    // Equal electron and ion temperatures
-    ddt(ions.P)   += ddt(electrons.P) / ions.ZZ;
     
     return 0;
   }
