@@ -110,7 +110,7 @@ public:
       // Set velocity of neutrals coming from the wall to a fraction of
       // the Franck-Condon energy
       BoutReal Vneut = -vwall * sqrt(3.5 / Tnorm);
-      SNVn(r.ind, mesh->yend, jz) += ntarget * Vneut;
+      SNVn(r.ind, mesh->yend, jz) += atoms.AA * ntarget * Vneut;
       
       // Set temperature of the incoming neutrals to F-C
       SEn(r.ind, mesh->yend, jz) += (3./2) * ntarget * (3.5 / Tnorm);
