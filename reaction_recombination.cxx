@@ -23,10 +23,12 @@ public:
     
     // Get the species
     Field3D Ti, Vi;
+    double AA;
     try {
       auto &ions = *species.at("h+");
       Ti = ions.T;
       Vi = ions.V;
+      AA = ions.AA;
     } catch (const std::out_of_range &e) {
       throw BoutException("No 'h+' species");
     }
@@ -66,7 +68,7 @@ public:
       Erec[i] += weight * (3. / 2) * Ti * R;
 
       // Momentum transferred to neutrals
-      Frec[i] += weight * Vi * R;
+      Frec[i] += weight * AA * Vi * R;
 
       // Particles transferred to neutrals
       Srec[i] += weight * R;
