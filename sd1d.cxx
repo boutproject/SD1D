@@ -65,6 +65,10 @@ protected:
 
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
 
+    kappa_limit_alpha = opt["kappa_limit_alpha"]
+                            .doc("Flux limiter. Turned off if < 0 (default)")
+                            .withDefault(-1.0);
+
     snb_model = opt["snb_model"]
                     .doc("Use SNB non-local heat flux model")
                     .withDefault<bool>(false);	// SNB non-locality
@@ -299,8 +303,28 @@ protected:
           tau_e = Omega_ci * tau_e0 * pow(electrons.T, 1.5) / electrons.N;
           
           kappa_epar = 3.2 * mi_me * electrons.P * tau_e;
-          kappa_epar.applyBoundary("neumann");
           
+          if (kappa_limit_alpha > 0.0) {
+	          /*
+	           * Flux limiter, as used in SOLPS.
+	           *
+	           * Calculate the heat flux from Spitzer-Harm and flux limit
+	           *
+	           * Typical value of alpha ~ 0.2 for electrons
+	           *
+	           * R.Schneider et al. Contrib. Plasma Phys. 46, No. 1-2, 3 – 191 (2006)
+	           * DOI 10.1002/ctpp.200610001
+	           */
+	          
+	          // Spitzer-Harm heat flux
+            Field3D q_SH = kappa_epar * Grad_par(electrons.T);
+            Field3D q_fl = kappa_limit_alpha * electrons.N * electrons.T * sqrt(mi_me * electrons.T);
+	          
+            kappa_epar = kappa_epar / (1. + abs(q_SH / q_fl));
+            mesh->communicate(kappa_epar);
+	        }
+
+          kappa_epar.applyBoundary("neumann");
         }
 
         if (snb_model) {
@@ -417,6 +441,7 @@ private:
   Field3D kappa_epar; // Plasma thermal conduction
   Field3D tau_e;        // Electron collision time
   bool heat_conduction; // Thermal conduction on/off
+  BoutReal kappa_limit_alpha; // Heat flux limiter. Turned off if < 0
   bool snb_model;       // Use the SNB model for heat conduction?
   HeatFluxSNB *snb;
   Field3D Div_Q_SH, Div_Q_SNB; // Divergence of heat flux from Spitzer-Harm and SNB
