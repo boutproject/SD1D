@@ -122,7 +122,7 @@ which is stored in the output as  "\texttt{Omega\_ci}". So each output step is 5
 The number of internal timesteps is determined by the solver, and determines the number of times the \texttt{rhs()}
 function was called, which is given in the second column. If this number starts steadily increasing, it's often a sign of numerical problems.
 
-To analyse the simulation, the data is stored in the "fluid" subdirectory along with the input. You can use IDL or Python to look at the "Ne", "NVi", "P" variables etc. which have the same names as in the \texttt{sol1d.cxx} code. See section~\ref{sec:output} for
+To analyse the simulation, the data is stored in the "case-01" subdirectory along with the input. You can use IDL or Python to look at the "Ne", "NVi", "P" variables etc. which have the same names as in the \texttt{sd1d.cxx} code. See section~\ref{sec:output} for
 details of the output variables and their normalisation. The evolving variables should each be 4D, but all dimensions are of size 1 except for the time and parallel index (200). Please see the BOUT++ user manual for details of setting up the Python and IDL reading ("collect") routines. 
 
 
