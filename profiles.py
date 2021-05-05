@@ -30,7 +30,11 @@ tind = -1
 P = collect("P", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
 Ne = collect("Ne", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
 NVi = collect("NVi", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
-Nn = collect("Nn", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
+
+try:
+    Nn = collect("Nn", path=path, tind=tind, yguards=True)[-1,0,1:-1,0]
+except IndexError:
+    Nn = zeros(Ne.shape)
 
 # Normalisations
 nnorm = collect("Nnorm", path=path, tind=tind)

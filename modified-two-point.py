@@ -148,6 +148,8 @@ if __name__ == "__main__":
             print("Setting upstream index = %d" % upstream_index)
         except:
             print("Error: Could not locate end of the source region")
+            print(" -> Setting upstream index to 0")
+            upstream_index = 0
     
     # Calculate loss fractions
     f_mom = momentum_loss_fraction(path, upstream_index=upstream_index, tind=tind)
