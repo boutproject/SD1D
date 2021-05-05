@@ -93,7 +93,7 @@ public:
       Ecx[i] += weight * (3. / 2) * (Ti - Tn) * R;
 
       // Fcx is friction between plasma and neutrals
-      Fcx[i] += weight * (Vi - Vn) * R;
+      Fcx[i] += weight * atoms.AA * (Vi - Vn) * R;
 
       if (charge_exchange_escape) {
         // Scx is a redistribution of fast neutrals due to charge exchange

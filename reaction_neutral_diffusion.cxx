@@ -74,7 +74,7 @@ public:
       if (tn < tn_floor / Tnorm) {
         tn = tn_floor / Tnorm;
       }
-      BoutReal vth_n = sqrt(tn); // Normalised to Cs0
+      BoutReal vth_n = sqrt(tn / atoms.AA); // Normalised to Cs0
       
       // Neutral-neutral mean free path
       BoutReal a0 = PI * SQ(5.29e-11);

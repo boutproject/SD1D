@@ -27,11 +27,13 @@ public:
     // Get the species
     // Extract required variables
     Field3D Nn, Tn, Vn;
+    double AA;
     try {
       auto &atoms = *species.at("h");
       Nn = atoms.N;
       Tn = atoms.T;
       Vn = atoms.V;
+      AA = atoms.AA;
     } catch (const std::out_of_range &e) {
       throw BoutException("No 'h' species");
     }
@@ -68,7 +70,7 @@ public:
       Eiz[i] -= weight * (3. / 2) * Tn * R;
 
       // Friction due to ionisation
-      Fiz[i] -= weight * Vn * R;
+      Fiz[i] -= weight * AA * Vn * R;
 
       // Plasma sink due to ionisation (negative)
       Siz[i] -= weight * R;

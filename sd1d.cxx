@@ -38,6 +38,7 @@
 
 #include <bout/constants.hxx>
 #include <bout/physicsmodel.hxx>
+#include <bout/snb.hxx>
 #include <derivs.hxx>
 #include "field_factory.hxx"
 #include <invert_parderiv.hxx>
@@ -48,6 +49,8 @@
 #include "radiation.hxx"
 #include "species.hxx"
 #include "reaction.hxx"
+
+using bout::HeatFluxSNB;
 
 class SD1D : public PhysicsModel {
 protected:
@@ -61,6 +64,19 @@ protected:
     SAVE_ONCE3(Tnorm, Nnorm, Bnorm);      // Save normalisations
 
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
+
+    kappa_limit_alpha = opt["kappa_limit_alpha"]
+                            .doc("Flux limiter. Turned off if < 0 (default)")
+                            .withDefault(-1.0);
+
+    snb_model = opt["snb_model"]
+                    .doc("Use SNB non-local heat flux model")
+                    .withDefault<bool>(false);	// SNB non-locality
+    if (snb_model) {
+      // Create a solver to calculate the SNB heat flux
+      snb = new HeatFluxSNB();
+    }
+
 
     // Get a list of reactions to include, separated by commas
     
@@ -146,6 +162,10 @@ protected:
 
     if (heat_conduction) {
       SAVE_REPEAT(kappa_epar); // Save coefficient of thermal conduction
+    }
+
+    if (snb_model) {
+      SAVE_REPEAT(Div_Q_SH, Div_Q_SNB);
     }
     
     kappa_epar = 0.0;
@@ -275,29 +295,66 @@ protected:
       ddt(electrons.P) = 0.0;
 
       if (heat_conduction) {
-        
+
         if (update_coefficients) {
           // Update diffusion coefficients
           TRACE("Update coefficients");
           
           tau_e = Omega_ci * tau_e0 * pow(electrons.T, 1.5) / electrons.N;
           
-          kappa_epar = 3.2 * mi_me * 0.5 * electrons.P * tau_e;
-          kappa_epar.applyBoundary("neumann");
+          kappa_epar = 3.2 * mi_me * electrons.P * tau_e;
           
+          if (kappa_limit_alpha > 0.0) {
+	          /*
+	           * Flux limiter, as used in SOLPS.
+	           *
+	           * Calculate the heat flux from Spitzer-Harm and flux limit
+	           *
+	           * Typical value of alpha ~ 0.2 for electrons
+	           *
+	           * R.Schneider et al. Contrib. Plasma Phys. 46, No. 1-2, 3 – 191 (2006)
+	           * DOI 10.1002/ctpp.200610001
+	           */
+	          
+	          // Spitzer-Harm heat flux
+            Field3D q_SH = kappa_epar * Grad_par(electrons.T);
+            Field3D q_fl = kappa_limit_alpha * electrons.N * electrons.T * sqrt(mi_me * electrons.T);
+	          
+            kappa_epar = kappa_epar / (1. + abs(q_SH / q_fl));
+            mesh->communicate(kappa_epar);
+	        }
+
+          kappa_epar.applyBoundary("neumann");
         }
-        
-        // NOTE: This factor of 2 is to match SD1D v1, but should be removed
-        // once testing is complete.
-        ddt(electrons.P) += 2. * (2. / 3) * Div_par_diffusion_upwind(kappa_epar, electrons.T);
-      }
+
+        if (snb_model) {
+            // SNB non-local heat flux. Also returns the Spitzer-Harm value for comparison
+            // Note: Te in eV, Ne in Nnorm
+            Field2D dy_orig = mesh->getCoordinates()->dy;
+            mesh->getCoordinates()->dy *= rho_s0; // Convert distances to m
+            Div_Q_SNB = snb->divHeatFlux(electrons.T * Tnorm, electrons.N * Nnorm, &Div_Q_SH);
+            mesh->getCoordinates()->dy = dy_orig;
+            
+            // Normalise from eV/m^3/s
+            Div_Q_SNB /= Tnorm * Nnorm * Omega_ci;
+            Div_Q_SH /= Tnorm * Nnorm * Omega_ci;
+
+            // Add to pressure equation
+            ddt(electrons.P) -= (2. / 3) * Div_Q_SNB * ions.ZZ / (1+ions.ZZ);
+          } else {
+            // The standard Spitzer-Harm model
+            // NOTE: Factor of Z/(1+Z) accounts for instant equipartition of energy between electrons and ions in this Te=Ti assumption,
+
+            ddt(electrons.P) += (2. / 3) * Div_par_diffusion_upwind(kappa_epar, electrons.T) * ions.ZZ / (1+ions.ZZ);
+        }
+      }    
 
       // Electron pressure acts on ions
-      ddt(ions.NV) -= Grad_par(ions.P);
+      ddt(ions.NV) -= Grad_par(electrons.P);
+
+      // Equal electron and ion temperatures
+      ddt(ions.P)   += ddt(electrons.P) / ions.ZZ;
     }
-    
-    // Equal electron and ion temperatures
-    ddt(ions.P)   += 0.5*ddt(electrons.P);
     
     return 0;
   }
@@ -384,6 +441,10 @@ private:
   Field3D kappa_epar; // Plasma thermal conduction
   Field3D tau_e;        // Electron collision time
   bool heat_conduction; // Thermal conduction on/off
+  BoutReal kappa_limit_alpha; // Heat flux limiter. Turned off if < 0
+  bool snb_model;       // Use the SNB model for heat conduction?
+  HeatFluxSNB *snb;
+  Field3D Div_Q_SH, Div_Q_SNB; // Divergence of heat flux from Spitzer-Harm and SNB
 
   /////////////////////////////////////////////////////////////////
   // Atomic physics transfer channels

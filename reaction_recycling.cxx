@@ -51,7 +51,7 @@ public:
 
     if ((*options)["diagnose"].withDefault(false)) {
       // Save additional outputs
-      SAVE_REPEAT(flux_ion);
+      SAVE_REPEAT(flux_ion,flux_neut);
     }
   }
 
@@ -91,7 +91,7 @@ public:
       BoutReal neutral_density = 0.5 * (Nn(r.ind, jy, jz) + Nn(r.ind, jy + 1, jz));
       BoutReal neutral_velocity = 0.5 * (Vn(r.ind, jy, jz) + Vn(r.ind, jy + 1, jz));
       
-      BoutReal flux_neut = neutral_density * neutral_velocity *
+      flux_neut = neutral_density * neutral_velocity *
         (coord->J(r.ind, jy) + coord->J(r.ind, jy + 1)) /
         (sqrt(coord->g_22(r.ind, jy)) + sqrt(coord->g_22(r.ind, jy + 1)));
       
@@ -110,7 +110,7 @@ public:
       // Set velocity of neutrals coming from the wall to a fraction of
       // the Franck-Condon energy
       BoutReal Vneut = -vwall * sqrt(3.5 / Tnorm);
-      SNVn(r.ind, mesh->yend, jz) += ntarget * Vneut;
+      SNVn(r.ind, mesh->yend, jz) += atoms.AA * ntarget * Vneut;
       
       // Set temperature of the incoming neutrals to F-C
       SEn(r.ind, mesh->yend, jz) += (3./2) * ntarget * (3.5 / Tnorm);
@@ -166,7 +166,7 @@ public:
 private:
   std::string name; // Species name e.g. "h" or "h+"
 
-  BoutReal flux_ion; // Flux of ions to target (output)
+  BoutReal flux_ion,flux_neut; // Flux of ions to target (output)
 
   
   BoutReal frecycle; // Recycling fraction
