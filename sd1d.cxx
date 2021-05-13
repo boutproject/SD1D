@@ -36,6 +36,8 @@
 
 #include <mpi.h>
 
+#include "revision.hxx"
+
 #include <bout/constants.hxx>
 #include <bout/physicsmodel.hxx>
 #include <derivs.hxx>
@@ -56,7 +58,13 @@ using bout::HeatFluxSNB;
 class SD1D : public PhysicsModel {
 protected:
   int init(bool restarting) {
-    Options *opt = Options::getRoot()->getSection("sd1d");
+    Options &opt = Options::root()["sd1d"];
+
+    output.write("\nGit Version of SD1D: %s\n", sd1d::version::revision);
+    opt["revision"] = sd1d::version::revision;
+
+    // Save the SD1D version in the output dump files
+    dump.setAttribute("", "SD1D_REVISION", sd1d::version::revision);
 
     OPTION(opt, cfl_info, false); // Calculate and print CFL information
 
@@ -76,9 +84,9 @@ protected:
     OPTION(opt, pressure_sheath, 0);  // Free boundary
     OPTION(opt, gaspuff, 0.0);        // Additional gas flux at target
     OPTION(opt, include_dneut, true); // Include neutral gas diffusion?
-    if (opt->isSet("dneut")) {
+    if (opt.isSet("dneut")) {
       // Scale neutral gas diffusion
-      dneut = FieldFactory::get()->create3D("dneut", opt, mesh);
+      dneut = FieldFactory::get()->create3D("dneut", &opt, mesh);
     } else {
       dneut = 1.0;
     }
@@ -110,11 +118,11 @@ protected:
     OPTION(opt, viscos, -1);            // Parallel viscosity
     OPTION(opt, ion_viscosity, false);  // Braginskii parallel viscosity
     OPTION(opt, heat_conduction, true); // Spitzer-Hahm heat conduction
-    kappa_limit_alpha = (*opt)["kappa_limit_alpha"]
+    kappa_limit_alpha = opt["kappa_limit_alpha"]
                             .doc("Flux limiter. Turned off if < 0 (default)")
                             .withDefault(-1.0);
 
-    snb_model = (*opt)["snb_model"]
+    snb_model = opt["snb_model"]
                     .doc("Use SNB non-local heat flux model")
                     .withDefault<bool>(false);
     if (snb_model) {
@@ -255,9 +263,9 @@ protected:
     // Load the metric tensor
     LoadMetric(rho_s0, Bnorm);
 
-    if ( opt->isSet("area") ) {
+    if ( opt.isSet("area") ) {
       // Area set in the input file. Overwrite any Jacobian from the mesh
-      mesh->getCoordinates()->J = ffact.create2D((*opt)["area"].as<std::string>(),
+      mesh->getCoordinates()->J = ffact.create2D(opt["area"].as<std::string>(),
                                                  Options::getRoot());
     }
 
@@ -324,7 +332,7 @@ protected:
       SAVE_REPEAT(Vi);
     }
 
-    if ( (*opt)["output_ddt"].withDefault<bool>(false) ) {
+    if ( opt["output_ddt"].withDefault<bool>(false) ) {
       SAVE_REPEAT(ddt(Ne), ddt(P), ddt(NVi));
       if (atomic) {
         SAVE_REPEAT(ddt(Nn), ddt(Pn));
@@ -380,8 +388,8 @@ protected:
 
     // Calculate neutral gas redistribution weights over the domain
     string redist_string;
-    opt->get("redist_weight", redist_string, "1.0");
-    redist_weight = ffact.create2D(redist_string, opt);
+    opt.get("redist_weight", redist_string, "1.0");
+    redist_weight = ffact.create2D(redist_string, &opt);
     BoutReal localweight = 0.0;
     Coordinates *coord = mesh->getCoordinates();
     for (int j = mesh->ystart; j <= mesh->yend; j++) {

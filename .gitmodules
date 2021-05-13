@@ -1,0 +1,3 @@
+[submodule "external/BOUT-dev"]
+	path = external/BOUT-dev
+	url = https://github.com/boutproject/BOUT-dev.git
