@@ -16,7 +16,7 @@ Installing with CMake
 ---------------------
 
 This is probably the most straightforward method to use now.  First
-configure BOUT++ and Hermes-3. To use the default options and minimal
+configure BOUT++ and SD1D. To use the default options and minimal
 dependencies just run:
 
     $ cmake . -B build
@@ -37,7 +37,7 @@ automatically downloaded as a submodule, together with some
 dependencies (NetCDF and FFTW are assumed to be installed already,
 along with optional dependencies like SUNDIALS and PETSc if they are
 requested).  Once configured, run build to compile BOUT++ and then
-Hermes-3:
+SD1D:
 
     $ cmake --build build
 
