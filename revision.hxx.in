@@ -1,0 +1,26 @@
+/// Information about the version of SD1D
+///
+/// The build system will update this file on every commit, which may
+/// result in files that include it getting rebuilt. Therefore it
+/// should be included in as few places as possible
+
+#ifndef SD1D_REVISION_H
+#define SD1D_REVISION_H
+
+namespace sd1d {
+namespace version {
+/// The git commit hash
+#ifndef SD1D_REVISION
+constexpr auto revision = "@SD1D_REVISION@";
+#else
+// Stringify value passed at compile time
+#define BUILDFLAG1_(x) #x
+#define BUILDFLAG(x) BUILDFLAG1_(x)
+constexpr auto revision = BUILDFLAG(SD1D_REVISION);
+#undef BUILDFLAG1
+#undef BUILDFLAG
+#endif
+} // namespace version
+} // namespace sd1d
+
+#endif // SD1D_REVISION_H
