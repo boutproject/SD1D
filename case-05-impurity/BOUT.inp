@@ -131,7 +131,7 @@ source = (flux/(mesh:length_xpt))*H(mesh:length_xpt - mesh:ypos)  # Particle inp
 scale = 1
 vtarg = 0.3
 function = vtarg * Ne:scale * Ne:function * y / (2*pi)  # Linear from 0 to 0.03 in y
-bndry_target = dirichlet_o2
+bndry_all = dirichlet_o2
 
 [P]    # Plasma pressure P = 2 * Ne * T
 scale = 1
