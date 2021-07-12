@@ -14,7 +14,7 @@ ny = 200    # Resolution along field-line
 
 length = 25        # Length of the domain in meters
 length_xpt = 12.5  # Length from midplane to X-point [m]
-area_expansion = 1 # Expansion factor Area(target) / Area(midplane)
+#area_expansion = 1 # Expansion factor Area(target) / Area(midplane)
 
 dy = length / ny   # Parallel grid spacing [m]
 
@@ -106,10 +106,6 @@ viscos = -0.0001 # Parallel viscosity
 ion_viscosity = false  # Braginskii parallel ion viscosity (ions and neutrals)
 
 heat_conduction = true # Heat conduction
-
-density_form = 4
-momentum_form = 6
-energy_form = 8
 
 [All]
 scale = 0.0
