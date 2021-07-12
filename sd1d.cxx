@@ -62,6 +62,7 @@ protected:
 
     output.write("\nGit Version of SD1D: %s\n", sd1d::version::revision);
     opt["revision"] = sd1d::version::revision;
+    opt["revision"].setConditionallyUsed();
 
     // Save the SD1D version in the output dump files
     dump.setAttribute("", "SD1D_REVISION", sd1d::version::revision);
@@ -1622,10 +1623,10 @@ protected:
    */
   int precon(BoutReal UNUSED(t), BoutReal gamma, BoutReal UNUSED(delta)) {
 
-    static InvertPar *inv = NULL;
+    static std::unique_ptr<InvertPar> inv = nullptr;
     if (!inv) {
       // Initialise parallel inversion class
-      inv = InvertPar::Create();
+      inv = InvertPar::create();
       inv->setCoefA(1.0);
     }
     if (heat_conduction) {
