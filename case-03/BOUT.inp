@@ -1,9 +1,8 @@
 #
 #
-# 
 
-NOUT = 100     # number of output time-steps
-TIMESTEP = 5000.  # time between outputs
+nout = 100     # number of output time-steps
+timestep = 5000.0  # time between outputs
 
 MZ = 1     # number of points in z direction (2^n + 1)
 MXG = 0    # No guard cells needed in X
@@ -39,7 +38,7 @@ symmetricGlobalY = true
 ##################################################
 # derivative methods
 
-[ddy]
+[mesh:ddy]
 
 first = C2
 second = C2
@@ -47,14 +46,12 @@ upwind = W3
 
 [solver]
 
-type = cvode
-
 mxstep = 100000  # Maximum number of internal steps per output
 
 atol = 1e-10
 rtol = 1e-5
 
-use_precon=true
+use_precon = true
 
 [sd1d]
 
@@ -69,10 +66,7 @@ AA = 2.0      # Ion atomic number
 Eionize = 30  # Energy lost per ionisation [eV]
 
 volume_source = true   # Sources spread over a volume
-density_upstream = -1 #1e19  # Fix upstream density using feedback (<0 = off)
-
-density_controller_p = 1e-2 # Density controller 'p' parameter
-density_controller_i = 1e-3 # Density controller 'i' parameter
+density_upstream = -1  # Fix upstream density using feedback (<0 = off)
 
 # Model parameters
 vwall = 0.0        # Velocity of neutrals at the wall, as fraction of Franck-Condon energy
@@ -81,9 +75,9 @@ frecycle = 0.9             # Recycling fraction
 fredistribute = 0.0        # Fraction of recycled neutrals redistributed evenly along length
 redist_weight = H(y - pi)  # Weighting for redistribution
 
-gaspuff = 0        # NOTE: In normalised units 
-dneut    = 10.0     # Scale neutral gas diffusion rate
-nloss    = 1e3     # Neutral gas loss rate [1/s]
+gaspuff = 0       # NOTE: In normalised units
+dneut = 10.0      # Scale neutral gas diffusion rate
+nloss = 1e3       # Neutral gas loss rate [1/s]
 fimp = -1         # Impurity fraction
 
 sheath_gamma = 6 # Sheath heat transmission
@@ -99,18 +93,16 @@ area = 1 #+ (mesh:area_expansion - 1) * H(mesh:ypos - mesh:length_xpt)*(mesh:ypo
 
 hyper = -1 # Numerical diffusion parameter on all terms
 ADpar = -1  # 4th-order numerical dissipation
-viscos = -0.01 # Parallel viscosity
+viscos = -0.0001 # Parallel viscosity ( < 0 = off )
 ion_viscosity = false  # Braginskii parallel ion viscosity (ions and neutrals)
 
 heat_conduction = true # Heat conduction
 
-[All]
-scale = 0.0
-
+[all]
 bndry_all = neumann_o2  # Default boundary condition
                         # Note: Sheath boundary applied in code
 
-[Ne] # Electron density 
+[Ne] # Electron density
 scale = 1
 
 # Initial conditions
@@ -118,7 +110,7 @@ function = 0.1
 
 flux = 4e23  # Particles per m^2 per second input
 source = (flux/(mesh:length_xpt))*H(mesh:length_xpt - mesh:ypos)  # Particle input source
-                           # as function of normalised y coordinate
+                                                                  # as function of normalised y coordinate
 
 [NVi]  # Parallel ion momentum
 scale = 1
@@ -128,7 +120,7 @@ bndry_all = dirichlet_o2
 
 [P]    # Plasma pressure P = 2 * Ne * T
 scale = 1
-function=0.1   # Initial constant pressure
+function = 0.1   # Initial constant pressure
 
 powerflux = 2e7  # Input power flux in W/m^2
 
@@ -136,20 +128,4 @@ source = (powerflux*2/3 / (mesh:length_xpt))*H(mesh:length_xpt - mesh:ypos)  # I
 
 # 1e7 W/m^2 / (L/2) with  L = 100 m , factor of 2 because power only from y = 0 to y=pi
 # * 2/3 to get from energy to Pe
-
-[Nn]
-# Neutral density
-scale = 1
-function = 1e-4   # Initial flat, low density
-
-[NVn]
-evolve = true # Evolve neutral momentum?
-
-[Pn]
-evolve = true # Evolve neutral pressure? Otherwise Tn = Te model
-
-Tstart = 3.5 # Starting temperature in eV
-
-scale = 1.0
-function = Nn:scale * Nn:function * Pn:Tstart / sd1d:Tnorm
 
