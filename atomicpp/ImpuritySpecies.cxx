@@ -47,7 +47,7 @@ ImpuritySpecies::ImpuritySpecies(string& impurity_symbol_supplied){
 	json j_object = retrieveFromJSON(user_file);
 	auto check_symbol_in_file = j_object.find(impurity_symbol_supplied);
 	if ((check_symbol_in_file != j_object.end())){
-		name                = j_object[impurity_symbol_supplied]["name"];
+		name                = j_object[impurity_symbol_supplied]["name"].get<std::string>();;
 		year                = j_object[impurity_symbol_supplied]["year"];
 		has_charge_exchange = j_object[impurity_symbol_supplied]["has_charge_exchange"];
 		atomic_number       = j_object[impurity_symbol_supplied]["atomic_number"];
