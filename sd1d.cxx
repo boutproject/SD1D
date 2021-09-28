@@ -141,8 +141,11 @@ protected:
     OPTION(opt, excitation, false); // Include electron impact excitation?
 
     OPTION(opt, gamma_sound, 5. / 3); // Ratio of specific heats
-    OPTION(opt, bndry_flux_fix, false);
-    
+    bndry_flux_fix =
+        opt["bndry_flux_fix"]
+            .doc("Calculate boundary fluxes using simple mid-point (recommended)")
+            .withDefault<bool>(true);
+
     // Field factory for generating fields from strings
     FieldFactory ffact(mesh);
 
