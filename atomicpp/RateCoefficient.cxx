@@ -22,7 +22,7 @@ RateCoefficient::RateCoefficient(const string& filename){
 	json data_dict = retrieveFromJSON(filename);
 
 	atomic_number   = data_dict["charge"];
-	element         = data_dict["element"];
+	element         = data_dict["element"].get<std::string>();;
 	adf11_file      = filename;
 
 	vector<vector< vector<double> > > extract_log_coeff = data_dict["log_coeff"];

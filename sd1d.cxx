@@ -44,6 +44,7 @@
 #include <field_factory.hxx>
 #include <invert_parderiv.hxx>
 #include <bout/snb.hxx>
+#include <bout/fv_ops.hxx>
 
 #include "div_ops.hxx"
 #include "loadmetric.hxx"
@@ -142,8 +143,11 @@ protected:
     OPTION(opt, excitation, false); // Include electron impact excitation?
 
     OPTION(opt, gamma_sound, 5. / 3); // Ratio of specific heats
-    OPTION(opt, bndry_flux_fix, false);
-    
+    bndry_flux_fix =
+        opt["bndry_flux_fix"]
+            .doc("Calculate boundary fluxes using simple mid-point (recommended)")
+            .withDefault<bool>(true);
+
     // Field factory for generating fields from strings
     FieldFactory ffact(mesh);
 
@@ -1179,7 +1183,7 @@ protected:
         // Advection and source terms, usually treated explicitly
 
         Field3D a = sqrt(gamma_sound * 2. * Te); // Local sound speed
-        ddt(Ne) = -Div_par_FV_FS(Ne, Vi, a, bndry_flux_fix); // Mass flow
+        ddt(Ne) = -FV::Div_par(Ne, Vi, a, bndry_flux_fix); // Mass flow
 
         if (atomic) {
           ddt(Ne) -= S; // Sink to recombination
@@ -1217,7 +1221,7 @@ protected:
       if (rhs_explicit) {
         // Flux splitting with upwinding
         Field3D a = sqrt(gamma_sound * 2. * Te); // Local sound speed
-        ddt(NVi) = -Div_par_FV_FS(NVi, Vi, a, bndry_flux_fix) // Momentum flow
+        ddt(NVi) = -FV::Div_par(NVi, Vi, a, bndry_flux_fix) // Momentum flow
                    - Grad_par(P);
 
         if (atomic) {
@@ -1271,7 +1275,7 @@ protected:
         // Note: ddt(P) set earlier for sheath
 
         Field3D a = sqrt(gamma_sound * 2. * Te);           // Local sound speed
-        ddt(P) += -Div_par_FV_FS(P, Vi, a, bndry_flux_fix) // Advection
+        ddt(P) += -FV::Div_par(P, Vi, a, bndry_flux_fix)   // Advection
                   - (2. / 3) * P * Div_par(Vi)             // Compression
             ;
 
@@ -1360,8 +1364,7 @@ protected:
       
       if (rhs_explicit) {
         ddt(Nn) =
-          -Div_par_FV_FS(Nn, Vn, an, true)
-          // -Div_par_FV(Nn, Vn) // Advection
+          -FV::Div_par(Nn, Vn, an, true) // Advection
                   + S                 // Source from recombining plasma
                   - nloss * Nn        // Loss of neutrals from the system
             ;
@@ -1394,8 +1397,7 @@ protected:
 
         if (rhs_explicit) {
           ddt(NVn) =
-            - Div_par_FV_FS(NVn, Vn, an, true)
-            //-Div_par_FV(NVn, Vn) // Momentum flow
+            - FV::Div_par(NVn, Vn, an, true) // Momentum flow
                      + F                  // Friction with plasma
                      - nloss * NVn        // Loss of neutrals from the system
                      - Grad_par(Pn)       // Pressure gradient
@@ -1446,8 +1448,7 @@ protected:
 
         if (rhs_explicit) {
           ddt(Pn) +=
-            - Div_par_FV_FS(Pn, Vn, an, true)
-            //-Div_par_FV(Pn, Vn)           // Advection
+            - FV::Div_par(Pn, Vn, an, true) // Advection
                      - (2. / 3) * Pn * Div_par(Vn) // Compression
                      + (2. / 3) * E // Energy transferred to neutrals
                      - nloss * Pn   // Loss of neutrals from the system
