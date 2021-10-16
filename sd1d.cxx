@@ -794,8 +794,8 @@ protected:
         // Density source, so dn/dt = source
         BoutReal error = density_upstream - Ne(r.ind, mesh->ystart, jz);
 
-        ASSERT2(finite(error));
-        ASSERT2(finite(density_error_integral));
+        ASSERT2(std::isfinite(error));
+        ASSERT2(std::isfinite(density_error_integral));
 
         // PI controller, using crude integral of the error
         if (density_error_lasttime < 0.0) {
@@ -867,7 +867,7 @@ protected:
 
         // Broadcast the value of source from processor 0
         MPI_Bcast(&source, 1, MPI_DOUBLE, 0, BoutComm::get());
-        ASSERT2(finite(source));
+        ASSERT2(std::isfinite(source));
 
         // Scale NeSource
         NeSource = source * NeSource0;
