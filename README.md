@@ -28,8 +28,14 @@ interactively before building:
 
     $ ccmake . -B build
 
-It is highly recommended to enable SUNDIALS, by setting `USE_SUNDIALS`
-to `ON`.
+The best solver currently available is "beuler", which requires PETSc.
+If you have PETSc installed, then BOUT++ can be built with it by
+setting `BOUT_USE_PETSC` to `ON` i.e. on the cmake command line include
+`-DBOUT_USE_PETSC=ON`. For more information on compiling BOUT++ with
+PETSc see [the BOUT++
+manual](https://bout-dev.readthedocs.io/en/latest/user_docs/advanced_install.html#petsc).
+If PETSc is not available, then it is highly recommended to enable
+SUNDIALS, by setting `BOUT_USE_SUNDIALS` to `ON`.
 
 During configuration
 [BOUT++](https://github.com/boutproject/BOUT-dev/) will be
