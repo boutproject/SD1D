@@ -50,13 +50,15 @@ second = C2
 upwind = W3
 
 [solver]
+type = beuler   # Backward Euler
+max_nonlinear_iterations = 10
 
-mxstep = 100000  # Maximum number of internal steps per output
+atol = 1e-7
+rtol = 1e-5
 
-atol = 1e-8
-rtol = 1e-3
+diagnose = true  # Output diagnostic information each step
 
-use_precon = true
+predictor = true # Use linear predictor? Helps initially, can cause issues near steady state
 
 [sd1d]
 
@@ -72,12 +74,12 @@ Eionize = 13.6  # Energy lost per ionisation [eV]
 excitation = true # Include electron-neutral excitation
 
 volume_source = true   # Sources spread over a volume
-density_upstream = 1.9e19  # Fix upstream density using feedback (<0 = off)
+density_upstream = 2.5e19  # Fix upstream density using feedback (<0 = off)
 
 density_controller_p = 5e-2 # Density controller 'p' parameter
 density_controller_i = 1e-3 # Density controller 'i' parameter
 
-density_integral_positive = true  # error integral must be positive?
+density_integral_positive = false  # error integral must be positive?
 density_source_positive = false # Source must be positive?
 
 # Model parameters
@@ -92,8 +94,8 @@ dneut    = 10.0     # Scale neutral gas diffusion rate
 tn_floor = 0.5      # Minimum neutral gas temperature for diffusion calculation [eV]
 nloss    = 0     # Neutral gas loss rate [1/s]
 fimp = 0.005         # Impurity fraction
-impurity_adas = false # Use Atomicpp to get ADAS data
-#impurity_species = c  # Species. currently "c" (carbon) or "n" (Nitrogen)
+impurity_adas = true # Use Atomicpp to get ADAS data
+impurity_species = n  # Species. currently "c" (carbon) or "n" (Nitrogen)
 
 
 sheath_gamma = 6 # Sheath heat transmission
