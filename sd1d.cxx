@@ -205,7 +205,9 @@ protected:
 
     /////////////////////////
     // Density controller
-    OPTION(opt, density_upstream, -1); // Fix upstream density? [m^-3]
+    density_upstream = opt["density_upstream"]
+      .doc("Fix upstream density [m^-3]. < 0 means no feedback control")
+      .withDefault(-1.0);
     if (density_upstream > 0.0) {
       // Fixing density
       density_upstream /= Nnorm;
@@ -308,9 +310,14 @@ protected:
         SAVE_REPEAT(Div_Q_SH, Div_Q_SNB);
       }
     }
-    
-    bool diagnose;
-    OPTION(opt, diagnose, true);
+
+    monitor = opt["monitor"]
+      .doc("Print diagnostic information every timestep")
+      .withDefault<bool>(false);
+
+    bool diagnose = opt["diagnose"]
+      .doc("Output diagnostic information to dmp files")
+      .withDefault<bool>(true);
     if (diagnose) {
       // Output extra variables
       if (atomic) {
@@ -1683,16 +1690,92 @@ protected:
    */
   int outputMonitor(BoutReal UNUSED(simtime), int UNUSED(iter), int UNUSED(NOUT)) {
 
-    static BoutReal maxinvdt_alltime = 0.0; // Max 1/dt over all output times
+    Coordinates *coord = mesh->getCoordinates();
+
+    ///////////////////////////////////////////////////
+    // Solution diagnostics
+
+    if (monitor) {
+
+      output.write("\n");
+
+      // Upstream conditions
+      BoutReal upstream[2] = {Ne(0, mesh->ystart, 0), Te(0, mesh->ystart, 0)};
+      MPI_Bcast(upstream, 2, MPI_DOUBLE, 0, BoutComm::get());
+
+      static BoutReal up_ne_last = 0.0, up_te_last = 0.0;
+      output.write("Upstream density: {} ({} % chg), temperature: {} ({} % chg)\n",
+		   upstream[0], 100. * (upstream[0] - up_ne_last) / upstream[0],
+		   upstream[1], 100. * (upstream[1] - up_te_last) / upstream[1]);
+      up_ne_last = upstream[0];
+      up_te_last = upstream[1];
+
+      // Target conditions
+      BoutReal target[3] = {
+	0.5 * (Ne(0, mesh->yend, 0) + Ne(0, mesh->yend + 1, 0)),
+	0.5 * (Te(0, mesh->yend, 0) + Te(0, mesh->yend + 1, 0)),
+	0.5 * (Vi(0, mesh->yend, 0) + Vi(0, mesh->yend + 1, 0))
+      };
+
+      MPI_Bcast(upstream, 3, MPI_DOUBLE, BoutComm::size() - 1, BoutComm::get());
+      static BoutReal tg_ne_last = 0.0, tg_te_last = 0.0, tg_vi_last = 0.0;
+      output.write("Target density  : {} ({} % chg), temperature: {} ({} % chg)\n",
+		   target[0], 100. * (target[0] - tg_ne_last) / target[0],
+		   target[1], 100. * (target[1] - tg_te_last) / target[1]);
+
+      BoutReal tg_nvi = target[0] * target[2];
+      output.write("Target flux: {} ({} % chg)\n",
+		   tg_nvi, 100. * (tg_nvi - tg_ne_last * tg_vi_last) / tg_nvi);
+
+      tg_ne_last = target[0];
+      tg_te_last = target[1];
+      tg_vi_last = target[2];
+
+      // Sources and fluxes
+      BoutReal ext_nesource_sum = 0; // External ion source
+      BoutReal rcy_nesource_sum = 0; // Recycling ion source
+      BOUT_FOR(i, Ne.getRegion(RGN_NOBNDRY)) {
+	BoutReal dV = coord->J[i] * coord->dy[i]; // Volume element
+	ext_nesource_sum += NeSource[i] * dV;
+	rcy_nesource_sum -= S[i] * dV; // S < 0 is ion source
+      }
+
+      // Particle content
+
+      BoutReal ne_sum = 0.0; // Plasma ion content
+      BoutReal nn_sum = 0.0; // Neutral atom content
+      BOUT_FOR(i, Ne.getRegion("RGN_NOBNDRY")) {
+	BoutReal dV = coord->J[i] * coord->dy[i];
+	ne_sum += Ne[i] * dV;
+	nn_sum += Nn[i] * dV;
+      }
+
+      BoutReal ne_sum_all, nn_sum_all;
+      MPI_Allreduce(&ne_sum, &ne_sum_all, 1, MPI_DOUBLE, MPI_SUM,
+                    BoutComm::get());
+      MPI_Allreduce(&nn_sum, &nn_sum_all, 1, MPI_DOUBLE, MPI_SUM,
+                    BoutComm::get());
+
+      // Previous values
+      static BoutReal ne_sum_last = 0.0, nn_sum_last = 0.0;
+
+      output.write("Ions: {} ({} % chg) Atoms: {} ({} % chg) Total: {} ({} % chg)",
+		   ne_sum_all, 100. * (ne_sum_all - ne_sum_last) / ne_sum_all,
+		   nn_sum_all, 100. * (nn_sum_all - nn_sum_last) / nn_sum_all,
+		   ne_sum_all + nn_sum_all,
+		   100. * (ne_sum_all + nn_sum_all - ne_sum_last - nn_sum_last) / (ne_sum_all + nn_sum_all));
+      ne_sum_last = ne_sum_all;
+      nn_sum_last = nn_sum_all;
+    }
 
     ///////////////////////////////////////////////////
     // Check velocities for CFL information
 
+    static BoutReal maxinvdt_alltime = 0.0; // Max 1/dt over all output times
+
     if (cfl_info) {
       // Calculate the maximum velocity, including cell centres
       // and edges.
-
-      Coordinates *coord = mesh->getCoordinates();
 
       BoutReal maxabsvc = 0.0; // Maximum absolute velocity + sound speed
       BoutReal maxinvdt = 0.0; // Maximum 1/dt
@@ -1752,16 +1835,17 @@ protected:
       if (maxinvdt_all > maxinvdt_alltime)
         maxinvdt_alltime = maxinvdt_all;
 
-      output.write("\nLocal max |v|+cs: %e Global max |v|+cs: %e\n", maxabsvc,
+      output.write("\nLocal max |v|+cs: {} Global max |v|+cs: {}\n", maxabsvc,
                    maxabsvc_all);
-      output.write("Local CFL limit: %e Global limit: %e\n", 1. / maxinvdt,
+      output.write("Local CFL limit: {} Global limit: {}\n", 1. / maxinvdt,
                    1. / maxinvdt_all);
-      output.write("Minimum global CFL limit %e\n", 1. / maxinvdt_alltime);
+      output.write("Minimum global CFL limit {}\n", 1. / maxinvdt_alltime);
     }
     return 0;
   }
 
 private:
+  bool monitor; // Output additional diagnostics to log file
   bool cfl_info; // Print additional information on CFL limits
 
   // Normalisation parameters
