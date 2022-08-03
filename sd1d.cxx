@@ -1376,6 +1376,12 @@ protected:
                   + S                 // Source from recombining plasma
                   - nloss * Nn        // Loss of neutrals from the system
             ;
+      } else {
+        ddt(Nn) = 0.0;
+      }
+
+      if (rhs_implicit) {
+        ddt(Nn) += NnSource; // Density source
 
         if (charge_exchange_escape) {
           // Charge exchanged fast neutrals lost from the plasma,
@@ -1384,18 +1390,13 @@ protected:
           ddt(Nn) -= Dcx;
         }
 
-      } else {
-        ddt(Nn) = NnSource; // Neutral density source
-      }
-
-      if (rhs_implicit) {
         if (include_dneut) {
           ddt(Nn) += Div_par_diffusion(Dn * Nn, logPn); // Diffusion
         }
-      }
 
-      if ((hyper > 0.0) && (rhs_implicit)) {
-        ddt(Nn) += D(Nn, hyper);
+        if (hyper > 0.0) {
+          ddt(Nn) += D(Nn, hyper);
+        }
       }
 
       if (evolve_nvn) {
@@ -1414,13 +1415,13 @@ protected:
           ddt(NVn) = 0.0;
         }
 
-        if (charge_exchange_escape) {
-          // Charge exchange momentum lost from the plasma, but not gained by
-          // the neutrals
-          ddt(NVn) -= Fcx;
-        }
-
         if (rhs_implicit) {
+          if (charge_exchange_escape) {
+            // Charge exchange momentum lost from the plasma, but not gained by
+            // the neutrals
+            ddt(NVn) -= Fcx;
+          }
+
           if (viscos > 0.) {
             // Note no factor of Nn
             ddt(NVn) += Div_par_diffusion(viscos * SQ(coord->dy), Vn);
