@@ -8,8 +8,6 @@ SOL and Divertor in 1D. Simulates a plasma fluid in one dimension (along the mag
 * Includes exchange of particles, momentum and energy through ionisation, recombination and charge exchange
 * Several different numerical methods are implemented, both upwind and central differencing
 
-Author: Ben Dudson, University of York <benjamin.dudson@york.ac.uk>
-
 Released under the GPL license
 
 Installing with CMake
@@ -46,9 +44,10 @@ Installing with Autotools
 -------------------------
 
 To compile with the Makefile system, first install BOUT++.
-This version of SD1D works with BOUT++ v4.3 or later:
+This version of SD1D works with BOUT++ v5, the `next` branch at time
+of writing (August 2022):
 
-    git clone -b v4.3.0-rc https://github.com/boutproject/BOUT-dev.git
+    git clone -b next https://github.com/boutproject/BOUT-dev.git
     cd BOUT-dev
 
 To run this model, preconditioning is strongly recommended, and
