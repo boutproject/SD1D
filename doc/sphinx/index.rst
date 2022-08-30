@@ -8,3 +8,10 @@ Welcome to SD1D documentation!
    :name: contents
 
    introduction
+   outputs
+   model
+   boundary
+   neutral
+   sources
+   atomic
+   numerical
