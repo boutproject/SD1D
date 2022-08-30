@@ -101,3 +101,23 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E copy
                    ${CMAKE_SOURCE_DIR}/impurity_user_input.json $<TARGET_FILE_DIR:${PROJECT_NAME}>/impurity_user_input.json)
+
+# Tests
+option(SD1D_TESTS "Build the tests" ON)
+if(SD1D_TESTS)
+  enable_testing()
+
+  add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                     COMMAND ${CMAKE_COMMAND} -E copy_directory
+                     ${CMAKE_SOURCE_DIR}/tests $<TARGET_FILE_DIR:${PROJECT_NAME}>/tests)
+
+  # Integrated tests
+  function(sd1d_add_integrated_test TESTNAME)
+    add_test(NAME ${TESTNAME}
+           WORKING_DIRECTORY tests/${TESTNAME}
+           COMMAND runtest)
+  endfunction()
+
+  sd1d_add_integrated_test(case-01)
+
+endif()
