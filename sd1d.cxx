@@ -63,6 +63,7 @@ protected:
 
     output.write("\nGit Version of SD1D: %s\n", sd1d::version::revision);
     opt["revision"] = sd1d::version::revision;
+    opt["revision"].setConditionallyUsed();
 
     // Save the SD1D version in the output dump files
     dump.setAttribute("", "SD1D_REVISION", sd1d::version::revision);
@@ -171,7 +172,7 @@ protected:
       NeSource = Options::root()["Ne"]["source"]
         .doc("Source of electron density. In SI units of particles/m^3/s").as<Field2D>();
 
-      PeSource = Options::root()["Pe"]["source"]
+      PeSource = Options::root()["P"]["source"]
         .doc("Source of pressure in SI units of Pascals/s. Multiply by 3/2 to get W/m3/s").as<Field2D>();
       
       // If the mesh file contains a source_weight variable, scale sources
