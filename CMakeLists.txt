@@ -33,7 +33,13 @@ endif()
 message(STATUS "Git revision: ${SD1D_REVISION}")
 
 # BOUT++ is a dependency
-add_subdirectory(external/BOUT-dev)
+option(SD1D_BUILD_BOUT "Build BOUT++ in external/BOUT-dev" ON)
+if(SD1D_BUILD_BOUT)
+  set(BOUT_BUILD_EXAMPLES, OFF) # Don't create example makefiles
+  add_subdirectory(external/BOUT-dev)
+else()
+  find_package(bout++ REQUIRED)
+endif()
 
 set(SD1D_SOURCES
     sd1d.cxx
