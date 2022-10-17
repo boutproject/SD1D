@@ -210,11 +210,10 @@ protected:
       OPTION(opt, density_integral_positive, false);
       OPTION(opt, density_source_positive, true);
 
-      density_error_lasttime = -1.0; // Signal no value
-
-      // Save and load error integral from file, since
-      // this determines the source function
-      restart.add(density_error_integral, "density_error_integral");
+      // Evolve the error integral
+      // Note: Only the first point in the domain
+      //    (upstream density) is actually evolved
+      SOLVE_FOR(density_error_integral);
 
       if (!restarting) {
         density_error_integral = 0.0;
@@ -796,6 +795,8 @@ protected:
 
       TRACE("Density upstream");
 
+      ddt(density_error_integral) = 0.0; // Most of the domain not evolving
+
       BoutReal source;
       for (RangeIterator r = mesh->iterateBndryLowerY(); !r.isDone(); r++) {
         int jz = 0;
@@ -806,33 +807,22 @@ protected:
         ASSERT2(std::isfinite(error));
         ASSERT2(std::isfinite(density_error_integral));
 
-        // PI controller, using crude integral of the error
-        if (density_error_lasttime < 0.0) {
-          // First time
-          density_error_lasttime = time;
-          density_error_last = error;
-        }
+        // The error integral in the first cell
+        BoutReal density_error_integral_upstream = density_error_integral(r.ind, mesh->ystart);
 
-        // Integrate using Trapezium rule
-        if (time > density_error_lasttime) { // Since time can decrease
-          density_error_integral += (time - density_error_lasttime) * 0.5 *
-                                    (error + density_error_last);
-        }
-
-        if ((density_error_integral < 0.0) && density_integral_positive) {
-          // Limit density_error_integral to be >= 0
-          density_error_integral = 0.0;
+        if (!density_integral_positive || (density_error_integral_upstream > 0.0) || (error > 0)) {
+          // If density_integral_positive = true
+          //    and density_error_integral < 0
+          //    and error < 0
+          // then don't decrease the error integral further
+          //
+          // Otherwise (the default), evolve the first cell
+          ddt(density_error_integral)(r.ind, mesh->ystart) = error;
         }
 
         // Calculate source from combination of error and integral
         source = density_controller_p * error +
-                 density_controller_i * density_error_integral;
-
-        // output.write("\n Source: %e, %e : %e, %e -> %e\n", time, (time -
-        // density_error_lasttime), error, density_error_integral, source);
-
-        density_error_last = error;
-        density_error_lasttime = time;
+                 density_controller_i * density_error_integral_upstream;
 
         if (!volume_source) {
           // Convert source into a flow velocity
@@ -1901,9 +1891,7 @@ private:
   bool density_integral_positive; // Limit the i term to be positive
   bool density_source_positive;   // Limit the source to be positive
 
-  BoutReal density_error_lasttime,
-      density_error_last;          // Value and time of last error
-  BoutReal density_error_integral; // Integral of error
+  Field2D density_error_integral; // Integral of error
 
   ///////////////////////////////////////////////////////////////
   // Numerical dissipation
