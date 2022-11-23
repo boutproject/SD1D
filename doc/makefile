@@ -1,11 +1,43 @@
+# Some distros may provide sphinx-build-3 and sphinx-build-2 instead
+# of sphinx-build. An automatic check would be helpful, but at least
+# with this, it should be easy to change:
+sphinx-build?=$(shell which sphinx-build-3 >/dev/null 2>&1 && echo sphinx-build-3 || echo sphinx-build)
 
-DOCS = sd1d-manual.pdf
+all: sphinx
+manual: all
+# set some shorter names
+pdf: sphinx-pdf
+html: sphinx-html
+man: sphinx-man
+sphinx: sphinx-pdf
 
-.PHONY: all
+sphinx-pdf: doxygen
+	$(sphinx-build) -b latex sphinx/ build/
+	cd build && latexmk -pdf sd1d
+	test -e sd1d.pdf || ln -s build/sd1d.pdf .
+	@echo "Documentation is available in `pwd`/sd1d.pdf"
 
-all: $(DOCS)
+sphinx-html: doxygen
+	$(sphinx-build) -b html sphinx/ html/
+	@echo "Documentation available in file://`pwd`/html/index.html"
 
-%.pdf: %.tex 
-	pdflatex $< 
-	pdflatex $<
+sphinx-man: doxygen
+	$(sphinx-build) -b man sphinx/ man/
+	@echo "Documentation available in `pwd`/man/sd1d.1"
+
+# Run doxygen, ignore if it fails (leading '-')
+doxygen:
+	-cd doxygen && doxygen Doxyfile
+
+# Run breathe-apidoc, ignore if it fails (leading '-')
+breathe-autogen: doxygen
+	-breathe-apidoc -f -o sphinx/_breathe_autogen doxygen/sd1d/xml
+
+clean:
+	@echo "Cleaning up..."
+	@$(RM) -f *.pdf
+	@$(RM) -rf html/
+	@$(RM) -rf build/
+	@$(RM) -rf man/
+	@$(RM) -rf sphinx/_breathe_autogen/
 

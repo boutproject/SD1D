@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+
+# Python script to run and analyse a self-convergence test
+
+from boututils.run_wrapper import shell, launch_safe, getmpirun
+from boutdata.collect import collect
+
+from numpy import sqrt, max, abs, mean, array, log, concatenate
+
+# List of NY values to use
+nylist = [80, 160, 320]
+
+nout = 50
+timestep = 10000
+
+nproc = 1
+
+varnames = ["Ne"]
+
+results = {}
+for var in varnames:
+    results[var] = {"up": [], "down": []}
+
+for ny in nylist:
+    args = "mesh:ny=" + str(ny) + " nout=" + str(nout) + " timestep=" + str(timestep)
+
+    print("Running with " + args)
+
+    # Delete old data
+    shell("rm data/BOUT.dmp.*.nc")
+
+    # Command to run
+    cmd = "../../sd1d " + args
+    # Launch using MPI
+    s, out = launch_safe(cmd, nproc=nproc, pipe=True)
+
+    # Save output to log file
+    f = open("run.log." + str(ny), "w")
+    f.write(out)
+    f.close()
+
+    # Collect data
+    for var in varnames:
+        val = collect(var, tind=[nout, nout], path="data", info=False, yguards=True)[
+            0, 0, :, 0
+        ]
+
+        # Upstream boundary
+        val_up = 0.5 * (val[1] + val[2])
+        # Downstream / target boundary
+        val_down = 0.5 * (val[-3] + val[-2])
+
+        results[var]["up"].append(val_up)
+        results[var]["down"].append(val_down)
+
+        print("Values %s: upstream %f downstream %f" % (var, val_up, val_down))
+
+# Calculate grid spacing
+dy = 1.0 / array(nylist)
+dy = dy[:-1]  # Because we're using the higher resolution as reference
+
+success = True
+
+for var in varnames:
+    down = array(results[var]["down"])
+    down_err = abs(down[:-1] - down[1:])
+    order = log(down_err[-1] / down_err[-2]) / log(dy[-1] / dy[-2])
+
+    print("{}: order = {}".format(var, order))
+    if order < 0.5:
+        success = False
+
+# plot values
+try:
+    import matplotlib.pyplot as plt
+
+    for var in varnames:
+        up = array(results[var]["up"])
+        down = array(results[var]["down"])
+
+        up_err = abs(up[:-1] - up[1:])  # Difference from one approximation to the next
+        down_err = abs(down[:-1] - down[1:])
+
+        order = log(down_err[-1] / down_err[-2]) / log(dy[-1] / dy[-2])
+
+        plt.plot(dy, up_err, "-o", label=r"upstream (" + var + ")")
+        plt.plot(dy, down_err, "-x", label=r"downstream (" + var + ")")
+        plt.plot(
+            dy,
+            down_err[-1] * (dy / dy[-1]) ** order,
+            "--",
+            label="Order %.1f" % (order),
+        )
+
+    plt.legend(loc="upper left")
+    plt.grid()
+
+    plt.yscale("log")
+    plt.xscale("log")
+
+    plt.xlabel(r"Mesh spacing $\delta y$")
+    plt.ylabel("Error norm")
+
+    plt.savefig("case01_norm.pdf")
+    plt.savefig("case01_norm.png")
+
+    # plt.show()
+    plt.close()
+except:
+    # Plotting could fail for any number of reasons, and the actual
+    # error raised may depend on, among other things, the current
+    # matplotlib backend, so catch everything
+    pass
+
+if success:
+    print(" => Test passed")
+    exit(0)
+else:
+    print(" => Test failed")
+    exit(1)

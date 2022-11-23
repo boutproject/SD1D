@@ -63,6 +63,7 @@ protected:
 
     output.write("\nGit Version of SD1D: %s\n", sd1d::version::revision);
     opt["revision"] = sd1d::version::revision;
+    opt["revision"].setConditionallyUsed();
 
     // Save the SD1D version in the output dump files
     dump.setAttribute("", "SD1D_REVISION", sd1d::version::revision);
@@ -169,10 +170,10 @@ protected:
       // Volume sources of particles and energy
 
       NeSource = Options::root()["Ne"]["source"]
-        .doc("Source of electron density. In SI units of particles/m^3/s");
+        .doc("Source of electron density. In SI units of particles/m^3/s").as<Field2D>();
 
-      PeSource = Options::root()["Pe"]["source"]
-        .doc("Source of pressure in SI units of Pascals/s. Multiply by 3/2 to get W/m3/s");
+      PeSource = Options::root()["P"]["source"]
+        .doc("Source of pressure in SI units of Pascals/s. Multiply by 3/2 to get W/m3/s").as<Field2D>();
       
       // If the mesh file contains a source_weight variable, scale sources
       Field2D source_weight; 
@@ -266,7 +267,7 @@ protected:
 
         // Get the neutral pressure source
         PnSource = Options::root()["Pn"]["source"]
-          .doc("Neutral atom pressure source. SI units of Pa/s").withDefault(field3D(0.0))
+          .doc("Neutral atom pressure source. SI units of Pa/s").withDefault(Field2D(0.0))
           / (SI::qe * Nnorm * Tnorm * Omega_ci);
 
         SAVE_ONCE(PnSource);
@@ -802,8 +803,8 @@ protected:
         // Density source, so dn/dt = source
         BoutReal error = density_upstream - Ne(r.ind, mesh->ystart, jz);
 
-        ASSERT2(finite(error));
-        ASSERT2(finite(density_error_integral));
+        ASSERT2(std::isfinite(error));
+        ASSERT2(std::isfinite(density_error_integral));
 
         // PI controller, using crude integral of the error
         if (density_error_lasttime < 0.0) {
@@ -875,7 +876,7 @@ protected:
 
         // Broadcast the value of source from processor 0
         MPI_Bcast(&source, 1, MPI_DOUBLE, 0, BoutComm::get());
-        ASSERT2(finite(source));
+        ASSERT2(std::isfinite(source));
 
         // Scale NeSource
         NeSource = source * NeSource0;
@@ -1637,10 +1638,10 @@ protected:
    */
   int precon(BoutReal UNUSED(t), BoutReal gamma, BoutReal UNUSED(delta)) {
 
-    static InvertPar *inv = NULL;
+    static std::unique_ptr<InvertPar> inv;
     if (!inv) {
       // Initialise parallel inversion class
-      inv = InvertPar::Create();
+      inv = InvertPar::create();
       inv->setCoefA(1.0);
     }
     if (heat_conduction) {
