@@ -63,6 +63,7 @@ protected:
 
     output.write("\nGit Version of SD1D: %s\n", sd1d::version::revision);
     opt["revision"] = sd1d::version::revision;
+    opt["revision"].setConditionallyUsed();
 
     // Save the SD1D version in the output dump files
     dump.setAttribute("", "SD1D_REVISION", sd1d::version::revision);
@@ -168,7 +169,8 @@ protected:
     if (volume_source) {
       // Volume sources of particles and energy
 
-      string source_string;
+      NeSource = Options::root()["Ne"]["source"]
+        .doc("Source of electron density. In SI units of particles/m^3/s").as<Field2D>();
 
       Options *optne = Options::getRoot()->getSection("Ne");
       optne->get("source", source_string, "0.0");
@@ -183,6 +185,9 @@ protected:
       Options *optpe = Options::getRoot()->getSection("P");
       optpe->get("source", source_string, "0.0");
       PeSource = ffact.create2D(source_string, optpe);
+
+      PeSource = Options::root()["P"]["source"]
+        .doc("Source of pressure in SI units of Pascals/s. Multiply by 3/2 to get W/m3/s").as<Field2D>();
       
       // If the mesh file contains a source_weight variable, scale sources
       Field2D source_weight; 
@@ -192,12 +197,11 @@ protected:
         NeSource *= source_weight;
         PeSource *= source_weight;
       }
-      
-      SAVE_ONCE(PeSource);
-      
+
       // Normalise sources
       NeSource /= Nnorm * Omega_ci;
       PeSource /= SI::qe * Nnorm * Tnorm * Omega_ci;
+      SAVE_ONCE(PeSource);
     } else {
       // Point sources, fixing density and specifying energy flux
 
@@ -260,11 +264,26 @@ protected:
 
     if (atomic) {
       solver->add(Nn, "Nn");
+
+      // Get the neutral density source
+      NnSource = Options::root()["Nn"]["source"]
+        .doc("Neutral atom source. SI units of particles/m^3/s").withDefault(Field2D(0.0))
+        / (Nnorm * Omega_ci);
+
+      SAVE_ONCE(NnSource);
+
       if (evolve_nvn) {
         solver->add(NVn, "NVn");
       }
       if (evolve_pn) {
         solver->add(Pn, "Pn");
+
+        // Get the neutral pressure source
+        PnSource = Options::root()["Pn"]["source"]
+          .doc("Neutral atom pressure source. SI units of Pa/s").withDefault(Field2D(0.0))
+          / (SI::qe * Nnorm * Tnorm * Omega_ci);
+
+        SAVE_ONCE(PnSource);
       }
     }
 
@@ -797,8 +816,8 @@ protected:
         // Density source, so dn/dt = source
         BoutReal error = density_upstream - Ne(r.ind, mesh->ystart, jz);
 
-        ASSERT2(finite(error));
-        ASSERT2(finite(density_error_integral));
+        ASSERT2(std::isfinite(error));
+        ASSERT2(std::isfinite(density_error_integral));
 
         // PI controller, using crude integral of the error
         if (density_error_lasttime < 0.0) {
@@ -870,7 +889,7 @@ protected:
 
         // Broadcast the value of source from processor 0
         MPI_Bcast(&source, 1, MPI_DOUBLE, 0, BoutComm::get());
-        ASSERT2(finite(source));
+        ASSERT2(std::isfinite(source));
 
         // Scale NeSource
         NeSource = source * NeSource0;
@@ -1384,6 +1403,12 @@ protected:
                   + S                 // Source from recombining plasma
                   - nloss * Nn        // Loss of neutrals from the system
             ;
+      } else {
+        ddt(Nn) = 0.0;
+      }
+
+      if (rhs_implicit) {
+        ddt(Nn) += NnSource; // Density source
 
         if (charge_exchange_escape) {
           // Charge exchanged fast neutrals lost from the plasma,
@@ -1392,18 +1417,13 @@ protected:
           ddt(Nn) -= Dcx;
         }
 
-      } else {
-        ddt(Nn) = 0.0;
-      }
-
-      if (rhs_implicit) {
         if (include_dneut) {
           ddt(Nn) += Div_par_diffusion(Dn * Nn, logPn); // Diffusion
         }
-      }
 
-      if ((hyper > 0.0) && (rhs_implicit)) {
-        ddt(Nn) += D(Nn, hyper);
+        if (hyper > 0.0) {
+          ddt(Nn) += D(Nn, hyper);
+        }
       }
 
       if (evolve_nvn) {
@@ -1422,13 +1442,13 @@ protected:
           ddt(NVn) = 0.0;
         }
 
-        if (charge_exchange_escape) {
-          // Charge exchange momentum lost from the plasma, but not gained by
-          // the neutrals
-          ddt(NVn) -= Fcx;
-        }
-
         if (rhs_implicit) {
+          if (charge_exchange_escape) {
+            // Charge exchange momentum lost from the plasma, but not gained by
+            // the neutrals
+            ddt(NVn) -= Fcx;
+          }
+
           if (viscos > 0.) {
             // Note no factor of Nn
             ddt(NVn) += Div_par_diffusion(viscos * SQ(coord->dy), Vn);
@@ -1471,13 +1491,13 @@ protected:
               ;
         }
 
-        if (charge_exchange_escape) {
-          // Fast neutrals escape from the plasma, being redistributed
-          // Hence energy is not transferred to neutrals directly
-          ddt(Pn) -= Dcx_T;
-        }
-
         if (rhs_implicit) {
+
+          if (charge_exchange_escape) {
+            // Fast neutrals escape from the plasma, being redistributed
+            // Hence energy is not transferred to neutrals directly
+            ddt(Pn) -= Dcx_T;
+          }
 
           if (include_dneut) {
             // Perpendicular diffusion
@@ -1486,19 +1506,23 @@ protected:
             // Parallel heat conduction
             ddt(Pn) += (2. / 3) * Div_par_diffusion(kappa_n, Tn);
           }
-        }
 
-        if ((hyper > 0.0) && (rhs_implicit)) {
-          ddt(Pn) += D(Pn, hyper);
-        }
+          // Neutral atom pressure (energy) source
+          ddt(Pn) += PnSource;
 
-        // Switch off evolution at very low densities
-        // This seems to be necessary to get through initial transients
+          // Hyper-diffusion (numerical)
+          if (hyper > 0.0) {
+            ddt(Pn) += D(Pn, hyper);
+          }
 
-        for (auto i : ddt(Nn).getRegion(RGN_NOBNDRY)) {
-          if (Nn[i] < 1e-5) {
-            // Relax to the plasma temperature
-            ddt(Pn)[i] = -1e-2 * (Pn[i] - Te[i] * Nn[i]);
+          // Switch off evolution at very low densities
+          // This seems to be necessary to get through initial transients
+
+          for (auto i : ddt(Nn).getRegion(RGN_NOBNDRY)) {
+            if (Nn[i] < 1e-5) {
+              // Relax to the plasma temperature
+              ddt(Pn)[i] = -1e-2 * (Pn[i] - Te[i] * Nn[i]);
+            }
           }
         }
       }
@@ -1640,10 +1664,10 @@ protected:
    */
   int precon(BoutReal UNUSED(t), BoutReal gamma, BoutReal UNUSED(delta)) {
 
-    static InvertPar *inv = NULL;
+    static std::unique_ptr<InvertPar> inv;
     if (!inv) {
       // Initialise parallel inversion class
-      inv = InvertPar::Create();
+      inv = InvertPar::create();
       inv->setCoefA(1.0);
     }
     if (heat_conduction) {
@@ -1890,9 +1914,11 @@ private:
   // Sources
 
   bool volume_source;         // Include volume sources?
-  Field2D NeSource, PeSource; // Volume sources
+  Field2D NeSource, PeSource; // Volume plasma sources (normalised)
   Field2D NeSource0;          // Used in feedback control
   BoutReal powerflux;         // Used if no volume sources
+
+  Field2D NnSource, PnSource; // Volume neutral sources (normalised)
 
   // Upstream density controller
   BoutReal density_upstream; // The desired density at the lower Y (upstream)
