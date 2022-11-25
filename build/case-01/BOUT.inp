@@ -117,8 +117,10 @@ scale = 1
 # Initial conditions
 function = 0.1
 
-NeElm = 1.0
-ElmPrefactor = h(t-2)
+NeElm = 0.00001
+
+width = 10000
+ElmPrefactor = exp(-((t-200000)/width)^2)
 
 flux = 4e23  # Particles per m^2 per second input
 source = (flux/(mesh:length_xpt))*h(mesh:length_xpt - mesh:ypos)  # Particle input source
@@ -134,7 +136,7 @@ bndry_target = dirichlet_o2
 scale = 1
 function=0.1   # Initial constant pressure
 
-PElm = 1.0
+PElm = 0.00001
 
 powerflux = 2e7  # Input power flux in W/m^2
 
