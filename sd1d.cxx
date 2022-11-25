@@ -173,6 +173,11 @@ protected:
       Options *optne = Options::getRoot()->getSection("Ne");
       optne->get("source", source_string, "0.0");
       NeSource = ffact.create2D(source_string, optne);
+      
+      NeElm = FieldFactory::get()->create3D("Ne:NeElm");
+      ElmPrefactorGenerator = FieldFactory::get()->parse("Ne:ElmPrefactor");
+      PElm = FieldFactory::get()->create3D("P:PElm");
+
       // SAVE_ONCE(NeSource);
 
       Options *optpe = Options::getRoot()->getSection("P");
@@ -243,7 +248,6 @@ protected:
         SAVE_ONCE(NeSource);
       }
     }
-
     Options::getRoot()->getSection("NVn")->get("evolve", evolve_nvn, true);
     Options::getRoot()->getSection("Pn")->get("evolve", evolve_pn, true);
 
@@ -1190,6 +1194,12 @@ protected:
 
         if (volume_source) {
           ddt(Ne) += NeSource; // External volume source
+        
+          // temporal increase due to Elm 
+          BoutReal ElmPrefactor = ElmPrefactorGenerator ->generate(0.0, 0.0, 0.0, time);
+          SourceNeElm = ElmPrefactor * NeElm;
+
+          ddt(Ne) += SourceNeElm; // Elm density
         }
 
       } else {
@@ -1289,6 +1299,13 @@ protected:
           // Volumetric source
 
           ddt(P) += PeSource; // External source of energy
+                               
+          // temporal increase due to Elm 
+          BoutReal ElmPrefactor = ElmPrefactorGenerator ->generate(0.0, 0.0, 0.0, time);
+          SourcePElm = ElmPrefactor * PElm;
+
+          ddt(P) += SourcePElm; // Elm density
+                                  
         } else {
           // Insert power into the first grid point
           for (RangeIterator r = mesh->iterateBndryLowerY(); !r.isDone(); r++)
@@ -1887,6 +1904,10 @@ private:
   BoutReal density_error_lasttime,
       density_error_last;          // Value and time of last error
   BoutReal density_error_integral; // Integral of error
+
+  // time dependent particel and power source for ELMs
+  Field3D SourceNeElm, NeElm, SourcePElm, PElm;
+  FieldGeneratorPtr ElmPrefactorGenerator;
 
   ///////////////////////////////////////////////////////////////
   // Numerical dissipation
