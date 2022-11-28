@@ -13,7 +13,7 @@ def animate_SD1D_output(d):
         bd.bout.animate_list(["Ne", "NVi", "P", "Nn", "NVn", "Pn"], nrows=2, ncols=3)
     except Exception:
         plt.close()
-        bd.bout.animate_list(["Ne", "NVi", "P"], nrows=3, ncols=1)
+        bd.bout.animate_list(["Ne", "NVi", "P"], nrows=3, ncols=1, save_as='time_dependent_source')
     plt.show()
 
 

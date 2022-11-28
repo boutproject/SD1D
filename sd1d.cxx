@@ -172,19 +172,11 @@ protected:
       NeSource = Options::root()["Ne"]["source"]
         .doc("Source of electron density. In SI units of particles/m^3/s").as<Field2D>();
 
-      Options *optne = Options::getRoot()->getSection("Ne");
-      optne->get("source", source_string, "0.0");
-      NeSource = ffact.create2D(source_string, optne);
-      
       NeElm = FieldFactory::get()->create3D("Ne:NeElm");
       ElmPrefactorGenerator = FieldFactory::get()->parse("Ne:ElmPrefactor");
       PElm = FieldFactory::get()->create3D("P:PElm");
 
       // SAVE_ONCE(NeSource);
-
-      Options *optpe = Options::getRoot()->getSection("P");
-      optpe->get("source", source_string, "0.0");
-      PeSource = ffact.create2D(source_string, optpe);
 
       PeSource = Options::root()["P"]["source"]
         .doc("Source of pressure in SI units of Pascals/s. Multiply by 3/2 to get W/m3/s").as<Field2D>();
