@@ -89,6 +89,8 @@ ion_viscosity = false  # Braginskii parallel ion viscosity (ions and neutrals)
 
 heat_conduction = false # Heat conduction
 
+time_dependent_source = true
+
 [all]
 bndry_all = neumann_o2  # Default boundary condition
                         # Note: Sheath boundary applied in code

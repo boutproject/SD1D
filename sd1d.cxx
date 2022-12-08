@@ -166,16 +166,21 @@ protected:
     SAVE_ONCE5(Cs0, Omega_ci, rho_s0, tau_e0, mi_me);
 
     OPTION(opt, volume_source, true);
+    OPTION(opt, time_dependent_source, false);
+
     if (volume_source) {
       // Volume sources of particles and energy
 
       NeSource = Options::root()["Ne"]["source"]
         .doc("Source of electron density. In SI units of particles/m^3/s").as<Field2D>();
-
-      NeElm = FieldFactory::get()->create3D("Ne:NeElm");
-      ElmPrefactorGenerator = FieldFactory::get()->parse("Ne:ElmPrefactor");
-      PElm = FieldFactory::get()->create3D("P:PElm");
-
+      
+      if (time_dependent_source){
+        // time depentend sources Ne and P sources for elms
+        NeElm = FieldFactory::get()->create3D("Ne:NeElm");
+        ElmPrefactorGenerator = FieldFactory::get()->parse("Ne:ElmPrefactor");
+        PElm = FieldFactory::get()->create3D("P:PElm");
+      }
+      
       // SAVE_ONCE(NeSource);
 
       PeSource = Options::root()["P"]["source"]
@@ -1204,13 +1209,16 @@ protected:
         }
 
         if (volume_source) {
+          
           ddt(Ne) += NeSource; // External volume source
-        
-          // temporal increase due to Elm 
-          BoutReal ElmPrefactor = ElmPrefactorGenerator ->generate(0.0, 0.0, 0.0, time);
-          SourceNeElm = ElmPrefactor * NeElm;
+          
+          if (time_dependent_source) {
+            // temporal increase due to Elm 
+            BoutReal ElmPrefactor = ElmPrefactorGenerator ->generate(0.0, 0.0, 0.0, time);
+            SourceNeElm = ElmPrefactor * NeElm;
 
-          ddt(Ne) += SourceNeElm; // Elm density
+            ddt(Ne) += SourceNeElm; // Elm density
+          }
         }
 
       } else {
@@ -1311,11 +1319,13 @@ protected:
 
           ddt(P) += PeSource; // External source of energy
                                
-          // temporal increase due to Elm 
-          BoutReal ElmPrefactor = ElmPrefactorGenerator ->generate(0.0, 0.0, 0.0, time);
-          SourcePElm = ElmPrefactor * PElm;
+          if (time_dependent_source){
+            // temporal increase due to Elm 
+            BoutReal ElmPrefactor = ElmPrefactorGenerator ->generate(0.0, 0.0, 0.0, time);
+            SourcePElm = ElmPrefactor * PElm;
 
-          ddt(P) += SourcePElm; // Elm density
+            ddt(P) += SourcePElm; // Elm density
+          }
                                   
         } else {
           // Insert power into the first grid point
@@ -1906,6 +1916,7 @@ private:
   // Sources
 
   bool volume_source;         // Include volume sources?
+  bool time_dependent_source; // Include time dependent source?
   Field2D NeSource, PeSource; // Volume plasma sources (normalised)
   Field2D NeSource0;          // Used in feedback control
   BoutReal powerflux;         // Used if no volume sources
