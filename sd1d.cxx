@@ -181,8 +181,6 @@ protected:
         PElm = FieldFactory::get()->create3D("P:PElm");
       }
       
-      // SAVE_ONCE(NeSource);
-
       PeSource = Options::root()["P"]["source"]
         .doc("Source of pressure in SI units of Pascals/s. Multiply by 3/2 to get W/m3/s").as<Field2D>();
       
