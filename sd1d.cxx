@@ -1212,7 +1212,7 @@ protected:
           
           if (time_dependent_source) {
             // temporal increase due to Elm 
-            BoutReal ElmPrefactor = ElmPrefactorGenerator ->generate(0.0, 0.0, 0.0, time);
+            BoutReal ElmPrefactor = ElmPrefactorGenerator ->generate(bout::generator::Context().set("x", 0, "y", 0, "z", 0, "t", time));
             SourceNeElm = ElmPrefactor * NeElm;
 
             ddt(Ne) += SourceNeElm; // Elm density
@@ -1319,7 +1319,7 @@ protected:
                                
           if (time_dependent_source){
             // temporal increase due to Elm 
-            BoutReal ElmPrefactor = ElmPrefactorGenerator ->generate(0.0, 0.0, 0.0, time);
+            BoutReal ElmPrefactor = ElmPrefactorGenerator ->generate(bout::generator::Context().set("x", 0, "y", 0, "z", 0, "t", time));
             SourcePElm = ElmPrefactor * PElm;
 
             ddt(P) += SourcePElm; // Elm density
