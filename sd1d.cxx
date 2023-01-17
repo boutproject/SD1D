@@ -42,7 +42,7 @@
 #include <bout/physicsmodel.hxx>
 #include <derivs.hxx>
 #include <field_factory.hxx>
-#include <invert_parderiv.hxx>
+#include <bout/invert_pardiv.hxx>
 #include <bout/snb.hxx>
 #include <bout/fv_ops.hxx>
 
@@ -1570,15 +1570,15 @@ protected:
    */
   int precon(BoutReal UNUSED(t), BoutReal gamma, BoutReal UNUSED(delta)) {
 
-    static std::unique_ptr<InvertPar> inv;
+    static std::unique_ptr<InvertParDiv> inv;
     if (!inv) {
       // Initialise parallel inversion class
-      inv = InvertPar::create();
+      inv = InvertParDiv::create();
       inv->setCoefA(1.0);
     }
     if (heat_conduction) {
-      // Set the coefficient in front of Grad2_par2
-      inv->setCoefB(-(2. / 3) * gamma * kappa_epar);
+      // Set the coefficient in Div_par( B * Grad_par )
+      inv->setCoefB(-(2. / 3) * gamma * kappa_epar / floor(Ne, 1e-5));
       Field3D dT = ddt(P);
       dT.applyBoundary("neumann");
       ddt(P) = inv->solve(dT);
