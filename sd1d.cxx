@@ -65,7 +65,7 @@ void set_with_attrs(Options& option, T value, std::initializer_list<std::pair<st
 
 class SD1D : public PhysicsModel {
 protected:
-  int init(bool restarting) {
+  int init(bool restarting) override {
     Options &opt = Options::root()["sd1d"];
 
     output.write("\nGit Version of SD1D: %s\n", sd1d::version::revision);
@@ -209,10 +209,6 @@ protected:
       OPTION(opt, density_source_positive, true);
 
       density_error_lasttime = -1.0; // Signal no value
-
-      // Save and load error integral from file, since
-      // this determines the source function
-      restart.add(density_error_integral, "density_error_integral");
 
       if (!restarting) {
         density_error_integral = 0.0;
@@ -380,8 +376,7 @@ protected:
    * of all evolving quantities
    *
    */
-  int rhs(BoutReal time) {
-    // fprintf(stderr, "\rTime: %e", time);
+  int rhs(BoutReal time) override {
 
     Coordinates *coord = mesh->getCoordinates();
 
@@ -1607,7 +1602,7 @@ protected:
   /*!
    * When split operator is enabled, run only the explicit part
    */
-  int convective(BoutReal t) {
+  int convective(BoutReal t) override {
     rhs_explicit = true;
     rhs_implicit = false;
     update_coefficients = true;
@@ -1617,7 +1612,7 @@ protected:
   /*!
    * When split operator is enabled, run only implicit part
    */
-  int diffusive(BoutReal t, bool linear) {
+  int diffusive(BoutReal t, bool linear) override {
     rhs_explicit = false;
     rhs_implicit = true;
     update_coefficients = !linear; // Don't update coefficients in linear solve
@@ -1627,7 +1622,7 @@ protected:
   /*!
    * Monitor output solutions
    */
-  int outputMonitor(BoutReal UNUSED(simtime), int UNUSED(iter), int UNUSED(NOUT)) {
+  int outputMonitor(BoutReal UNUSED(simtime), int UNUSED(iter), int UNUSED(NOUT)) override {
 
     static BoutReal maxinvdt_alltime = 0.0; // Max 1/dt over all output times
 
@@ -1707,7 +1702,7 @@ protected:
     return 0;
   }
 
-  void outputVars(Options& state) {
+  void outputVars(Options& state) override {
     AUTO_TRACE();
 
     state["SD1D_REVISION"].force(sd1d::version::revision);
@@ -2078,6 +2073,22 @@ protected:
         }
       }
     }
+  }
+
+  void restartVars(Options& state) override {
+    AUTO_TRACE();
+
+    // NOTE: This is a hack because we know that the loaded restart file
+    //       is passed into restartVars in PhysicsModel::postInit
+    // The restart value should be used in init() rather than here
+    static bool first = true;
+    if (first and state.isSet("density_error_integral")) {
+      first = false;
+      density_error_integral = state["density_error_integral"].as<BoutReal>();
+    }
+
+    // Save the density error integral to restart file
+    state["density_error_integral"].force(density_error_integral);
   }
 
 private:
