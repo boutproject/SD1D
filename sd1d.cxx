@@ -42,7 +42,7 @@
 #include <bout/physicsmodel.hxx>
 #include <derivs.hxx>
 #include <field_factory.hxx>
-#include <invert_parderiv.hxx>
+#include <bout/invert_pardiv.hxx>
 #include <bout/snb.hxx>
 #include <bout/fv_ops.hxx>
 
@@ -56,17 +56,21 @@
 
 using bout::HeatFluxSNB;
 
+// Helper for outputting variables
+template<typename T>
+void set_with_attrs(Options& option, T value, std::initializer_list<std::pair<std::string, Options::AttributeType>> attrs) {
+  option.force(value);
+  option.setAttributes(attrs);
+}
+
 class SD1D : public PhysicsModel {
 protected:
-  int init(bool restarting) {
+  int init(bool restarting) override {
     Options &opt = Options::root()["sd1d"];
 
     output.write("\nGit Version of SD1D: %s\n", sd1d::version::revision);
     opt["revision"] = sd1d::version::revision;
     opt["revision"].setConditionallyUsed();
-
-    // Save the SD1D version in the output dump files
-    dump.setAttribute("", "SD1D_REVISION", sd1d::version::revision);
 
     OPTION(opt, cfl_info, false); // Calculate and print CFL information
 
@@ -75,7 +79,6 @@ protected:
     OPTION(opt, Nnorm, 1e19);            // Reference density [m^-3]
     OPTION(opt, Bnorm, 1.0);             // Reference magnetic field [T]
     OPTION(opt, AA, 2.0);                // Ion mass
-    SAVE_ONCE4(Tnorm, Nnorm, Bnorm, AA); // Save normalisations
 
     // Model parameters
     OPTION(opt, vwall, 1. / 3); // 1/3rd Franck-Condon energy at wall
@@ -95,8 +98,7 @@ protected:
     if (min(dneut) < 0.0) {
       throw BoutException("dneut must be >= 0. Set include_dneut=false to disable\n");
     }
-    SAVE_ONCE(dneut);
-    
+
     OPTION(opt, nloss, 0.0);          // Neutral gas loss rate
     OPTION(opt, Eionize, 30);         // Energy loss per ionisation (30eV)
     OPTION(opt, sheath_gamma, 6.5);   // Sheath heat transmission
@@ -162,9 +164,6 @@ protected:
     BoutReal Coulomb = 6.6 - 0.5 * log(Nnorm * 1e-20) + 1.5 * log(Tnorm);
     tau_e0 = 1. / (2.91e-6 * (Nnorm / 1e6) * Coulomb * pow(Tnorm, -3. / 2));
 
-    // Save normalisation factors
-    SAVE_ONCE5(Cs0, Omega_ci, rho_s0, tau_e0, mi_me);
-
     OPTION(opt, volume_source, true);
     if (volume_source) {
       // Volume sources of particles and energy
@@ -187,7 +186,6 @@ protected:
       // Normalise sources
       NeSource /= Nnorm * Omega_ci;
       PeSource /= SI::qe * Nnorm * Tnorm * Omega_ci;
-      SAVE_ONCE(PeSource);
     } else {
       // Point sources, fixing density and specifying energy flux
 
@@ -212,10 +210,6 @@ protected:
 
       density_error_lasttime = -1.0; // Signal no value
 
-      // Save and load error integral from file, since
-      // this determines the source function
-      restart.add(density_error_integral, "density_error_integral");
-
       if (!restarting) {
         density_error_integral = 0.0;
 
@@ -228,15 +222,7 @@ protected:
     }
 
     if (volume_source) {
-      if (density_upstream > 0.0) {
-        // Evolving NeSource
-        SAVE_REPEAT(NeSource);
-
-        NeSource0 = NeSource; // Save initial value
-      } else {
-        // Fixed NeSource
-        SAVE_ONCE(NeSource);
-      }
+      NeSource0 = NeSource; // Save initial value
     }
 
     Options::getRoot()->getSection("NVn")->get("evolve", evolve_nvn, true);
@@ -257,8 +243,6 @@ protected:
         .doc("Neutral atom source. SI units of particles/m^3/s").withDefault(Field2D(0.0))
         / (Nnorm * Omega_ci);
 
-      SAVE_ONCE(NnSource);
-
       if (evolve_nvn) {
         solver->add(NVn, "NVn");
       }
@@ -269,8 +253,6 @@ protected:
         PnSource = Options::root()["Pn"]["source"]
           .doc("Neutral atom pressure source. SI units of Pa/s").withDefault(Field2D(0.0))
           / (SI::qe * Nnorm * Tnorm * Omega_ci);
-
-        SAVE_ONCE(PnSource);
       }
     }
 
@@ -301,63 +283,9 @@ protected:
       rad = new HutchinsonCarbonRadiation();
     }
 
-    // Add extra quantities to be saved
-    if (atomic) {
-      SAVE_REPEAT4(S, R, E, F);  // Save net plasma particle source, radiated
-                                 // power, energy transfer, friction
-      SAVE_REPEAT2(Dn, kappa_n); // Neutral diffusion coefficients
-      if (mesh->lastY()){        // only dump where we set the value
-	SAVE_REPEAT(flux_ion);   // Flux of ions to target
-      }
-    }
-    if (heat_conduction) {
-      SAVE_REPEAT(kappa_epar); // Save coefficient of thermal conduction
-      
-      if (snb_model) {
-        SAVE_REPEAT(Div_Q_SH, Div_Q_SNB);
-      }
-    }
-    
-    bool diagnose;
-    OPTION(opt, diagnose, true);
-    if (diagnose) {
-      // Output extra variables
-      if (atomic) {
-        SAVE_REPEAT2(Srec, Siz);        // Save particle sources
-        SAVE_REPEAT3(Frec, Fiz, Fcx);   // Save momentum sources
-        SAVE_REPEAT3(Rrec, Riz, Rzrad); // Save radiation sources
-        SAVE_REPEAT3(Erec, Eiz, Ecx);   // Save energy transfer
-        if (charge_exchange_escape) {
-          SAVE_REPEAT2(Dcx, Dcx_T); // Save particle loss of CX neutrals
-        }
-
-        if (elastic_scattering) {
-          SAVE_REPEAT2(Fel, Eel); // Elastic collision transfer channels
-        }
-        if (excitation) {
-          SAVE_REPEAT(Rex); // Electron-neutral excitation
-        }
-
-        if (evolve_nvn) {
-          SAVE_REPEAT(Vn);
-        }
-      }
-
-      SAVE_REPEAT(Vi);
-    }
-
-    if ( opt["output_ddt"].withDefault<bool>(false) ) {
-      SAVE_REPEAT(ddt(Ne), ddt(P), ddt(NVi));
-      if (atomic) {
-        SAVE_REPEAT(ddt(Nn), ddt(Pn));
-        if (evolve_nvn) {
-          SAVE_REPEAT(ddt(NVn));
-        }
-      }
-    }
-
-    if (ion_viscosity)
-      SAVE_REPEAT(eta_i);
+    diagnose = opt["diagnose"].doc("Output extra variables").withDefault<bool>(true);
+    output_ddt =
+      opt["output_ddt"].doc("Save time derivatives?").withDefault<bool>(false);
 
     kappa_epar = 0.0;
 
@@ -448,8 +376,7 @@ protected:
    * of all evolving quantities
    *
    */
-  int rhs(BoutReal time) {
-    // fprintf(stderr, "\rTime: %e", time);
+  int rhs(BoutReal time) override {
 
     Coordinates *coord = mesh->getCoordinates();
 
@@ -1638,15 +1565,15 @@ protected:
    */
   int precon(BoutReal UNUSED(t), BoutReal gamma, BoutReal UNUSED(delta)) {
 
-    static std::unique_ptr<InvertPar> inv;
+    static std::unique_ptr<InvertParDiv> inv;
     if (!inv) {
       // Initialise parallel inversion class
-      inv = InvertPar::create();
+      inv = InvertParDiv::create();
       inv->setCoefA(1.0);
     }
     if (heat_conduction) {
-      // Set the coefficient in front of Grad2_par2
-      inv->setCoefB(-(2. / 3) * gamma * kappa_epar);
+      // Set the coefficient in Div_par( B * Grad_par )
+      inv->setCoefB(-(2. / 3) * gamma * kappa_epar / floor(Ne, 1e-5));
       Field3D dT = ddt(P);
       dT.applyBoundary("neumann");
       ddt(P) = inv->solve(dT);
@@ -1675,7 +1602,7 @@ protected:
   /*!
    * When split operator is enabled, run only the explicit part
    */
-  int convective(BoutReal t) {
+  int convective(BoutReal t) override {
     rhs_explicit = true;
     rhs_implicit = false;
     update_coefficients = true;
@@ -1685,7 +1612,7 @@ protected:
   /*!
    * When split operator is enabled, run only implicit part
    */
-  int diffusive(BoutReal t, bool linear) {
+  int diffusive(BoutReal t, bool linear) override {
     rhs_explicit = false;
     rhs_implicit = true;
     update_coefficients = !linear; // Don't update coefficients in linear solve
@@ -1695,7 +1622,7 @@ protected:
   /*!
    * Monitor output solutions
    */
-  int outputMonitor(BoutReal UNUSED(simtime), int UNUSED(iter), int UNUSED(NOUT)) {
+  int outputMonitor(BoutReal UNUSED(simtime), int UNUSED(iter), int UNUSED(NOUT)) override {
 
     static BoutReal maxinvdt_alltime = 0.0; // Max 1/dt over all output times
 
@@ -1775,8 +1702,399 @@ protected:
     return 0;
   }
 
+  void outputVars(Options& state) override {
+    AUTO_TRACE();
+
+    state["SD1D_REVISION"].force(sd1d::version::revision);
+
+    // Write normalisation constants
+
+    BoutReal Pnorm = SI::qe * Tnorm * Nnorm; // Pressure normalisation
+
+    set_with_attrs(state["Tnorm"], Tnorm, {
+      {"units", "eV"},
+      {"conversion", 1}, // Already in SI units
+      {"standard_name", "temperature normalisation"},
+      {"long_name", "temperature normalisation"}
+    });
+    set_with_attrs(state["Nnorm"], Nnorm, {
+      {"units", "m^-3"},
+      {"conversion", 1},
+      {"standard_name", "density normalisation"},
+      {"long_name", "number density normalisation"}
+    });
+    set_with_attrs(state["Bnorm"], Bnorm, {
+      {"units", "T"},
+      {"conversion", 1},
+      {"standard_name", "magnetic field normalisation"},
+      {"long_name", "magnetic field normalisation"}
+    });
+    set_with_attrs(state["AA"], AA, {
+      {"units", ""},
+      {"conversion", 1},
+      {"standard_name", "atomic mass number"},
+      {"long_name", "atomic mass number"}
+    });
+    set_with_attrs(state["Cs0"], Cs0, {
+      {"units", "m/s"},
+      {"conversion", 1},
+      {"standard_name", "velocity normalisation"},
+      {"long_name", "sound speed normalisation"}
+    });
+    set_with_attrs(state["Omega_ci"], Omega_ci, {
+      {"units", "s^-1"},
+      {"conversion", 1},
+      {"standard_name", "frequency normalisation"},
+      {"long_name", "cyclotron frequency normalisation"}
+    });
+    set_with_attrs(state["rho_s0"], rho_s0, {
+      {"units", "m"},
+      {"conversion", 1},
+      {"standard_name", "length normalisation"},
+      {"long_name", "gyro-radius length normalisation"}
+    });
+    set_with_attrs(state["tau_e0"], tau_e0, {
+      {"units", "s"},
+      {"conversion", 1},
+      {"standard_name", "collision time"},
+      {"long_name", "collision time"}
+    });
+    set_with_attrs(state["mi_me"], mi_me, {
+      {"units", ""},
+      {"conversion", 1},
+      {"standard_name", "m_i / m_e"},
+      {"long_name", "ratio of ion to electron mass"}
+    });
+
+    // Neutral diffusion
+
+    set_with_attrs(state["dneut"], dneut, {
+      {"units", ""},
+      {"conversion", 1},
+      {"standard_name", "neutral diffusion multiplier"},
+      {"long_name", "neutral diffusion multiplier (Btor/Bpol)^2"}
+    });
+
+    // Sources
+
+    set_with_attrs(state["PeSource"], PeSource,
+                   {{"time_dimension", "t"},
+                    {"units", "Pa s^-1"},
+                    {"conversion", Pnorm * Omega_ci},
+                    {"standard_name", "pressure source"},
+                    {"long_name", "electron pressure source"}});
+
+    if (volume_source) {
+      set_with_attrs(state["NeSource"], NeSource,
+                     {{"time_dimension", "t"},
+                      {"units", "m^-3 s^-1"},
+                      {"conversion", Nnorm * Omega_ci},
+                      {"standard_name", "density source"},
+                      {"long_name", "electron number density source"}});
+    }
+
+    if (atomic) {
+      set_with_attrs(state["NnSource"], NnSource,
+                     {{"units", "m^-3 s^-1"},
+                      {"conversion", Nnorm * Omega_ci},
+                      {"standard_name", "density source"},
+                      {"long_name", "neutral atom number density source"}});
+
+      set_with_attrs(state["S"], S,
+                     {{"time_dimension", "t"},
+                      {"units", "m^-3 s^-1"},
+                      {"conversion", Nnorm * Omega_ci},
+                      {"standard_name", "density transfer"},
+                      {"long_name", "number density transfer from plasma to neutrals"}});
+
+      set_with_attrs(state["R"], R,
+                     {{"time_dimension", "t"},
+                      {"units", "W m^-3"},
+                      {"conversion", Pnorm * Omega_ci},
+                      {"standard_name", "radiated power"},
+                      {"long_name", "plasma radiated power"}});
+
+      set_with_attrs(state["E"], E,
+                     {{"time_dimension", "t"},
+                      {"units", "W m^-3"},
+                      {"conversion", Pnorm * Omega_ci},
+                      {"standard_name", "energy transfer"},
+                      {"long_name", "energy transfer from plasma to neutrals"}});
+
+      set_with_attrs(state["F"], F,
+                     {{"time_dimension", "t"},
+                      {"units", "kg m^-2 s^-2"},
+                      {"conversion", AA * SI::Mp * Nnorm * Cs0 * Omega_ci},
+                      {"standard_name", "momentum transfer"},
+                      {"long_name", "momentum transfer from plasma to neutrals"}});
+
+      set_with_attrs(state["Dn"], Dn,
+                     {{"time_dimension", "t"},
+                      {"units", "m^-2 s^-1"},
+                      {"conversion", rho_s0 * Cs0},
+                      {"standard_name", "diffusion coefficient"},
+                      {"long_name", "neutral particle diffusion coefficient"}});
+
+      set_with_attrs(state["kappa_n"], kappa_n,
+                     {{"time_dimension", "t"},
+                      {"units", "W m^-1 eV^-1"},
+                      {"conversion", SI::qe * Nnorm * rho_s0 * Cs0},
+                      {"standard_name", "heat diffusion coefficient"},
+                      {"long_name", "neutral heat diffusion coefficient"}});
+
+      if (evolve_pn) {
+        set_with_attrs(state["PnSource"], PnSource,
+                       {{"units", "Pa s^-1"},
+                        {"conversion", Pnorm * Omega_ci},
+                        {"standard_name", "pressure source"},
+                        {"long_name", "neutral atom pressure source"}});
+      }
+
+      if (mesh->lastY()) {
+        set_with_attrs(state["flux_ion"], flux_ion,
+                       {{"units", "m^-2 s^-1"},
+                        {"conversion", Nnorm * Cs0},
+                        {"standard_name", "target ion flux"},
+                        {"long_name", "target ion flux"}});
+      }
+    }
+
+    if (heat_conduction) {
+      set_with_attrs(state["kappa_epar"], kappa_epar,
+                     {{"time_dimension", "t"},
+                      {"units", "W m^-1 eV^-1"},
+                      {"conversion", SI::qe * Nnorm * rho_s0 * Cs0},
+                      {"standard_name", "heat diffusion coefficient"},
+                      {"long_name", "electron heat diffusion coefficient"}});
+
+      if (snb_model) {
+        set_with_attrs(state["Div_Q_SH"], Div_Q_SH,
+                       {{"time_dimension", "t"},
+                        {"units", "W m^-3"},
+                        {"conversion", Pnorm * Omega_ci},
+                        {"standard_name", "divergence of heat flux"},
+                        {"long_name", "divergence of Spitzer-Harm electron heat flux"}});
+
+        set_with_attrs(state["Div_Q_SNB"], Div_Q_SNB,
+                       {{"time_dimension", "t"},
+                        {"units", "W m^-3"},
+                        {"conversion", Pnorm * Omega_ci},
+                        {"standard_name", "divergence of heat flux"},
+                        {"long_name", "divergence of SNB electron heat flux"}});
+      }
+    }
+
+    if (ion_viscosity) {
+      set_with_attrs(state["eta_i"], eta_i,
+                     {{"time_dimension", "t"},
+                      {"units", "kg m^-1 s^-1"},
+                      {"conversion", AA * SI::Mp * Nnorm * rho_s0 * Cs0},
+                      {"standard_name", "dynamic viscosity"},
+                      {"long_name", "plasma parallel ion dynamic viscosity"}});
+    }
+
+    if (diagnose) {
+      set_with_attrs(state["Vi"], Vi,
+                     {{"time_dimension", "t"},
+                      {"units", "m / s"},
+                      {"conversion", Cs0},
+                      {"standard_name", "velocity"},
+                      {"long_name", "plasma parallel velocity"}});
+
+      if (atomic) {
+        // Save reaction channels
+        set_with_attrs(state["Srec"], Srec,
+                       {{"time_dimension", "t"},
+                        {"units", "m^-3 s^-1"},
+                        {"conversion", Nnorm * Omega_ci},
+                        {"standard_name", "recombination transfer"},
+                        {"long_name", "recombination from plasma to neutrals"}});
+
+        set_with_attrs(state["Siz"], Siz,
+                       {{"time_dimension", "t"},
+                        {"units", "m^-3 s^-1"},
+                        {"conversion", Nnorm * Omega_ci},
+                        {"standard_name", "ionisation particle transfer"},
+                        {"long_name", "ionisation particle transfer from plasma to neutrals"}});
+
+        set_with_attrs(state["Frec"], Frec,
+                       {{"time_dimension", "t"},
+                        {"units", "kg m^-2 s^-2"},
+                        {"conversion", AA * SI::Mp * Nnorm * Cs0 * Omega_ci},
+                        {"standard_name", "recombination momentum transfer"},
+                        {"long_name", "recombination momentum transfer from plasma to neutrals"}});
+
+        set_with_attrs(state["Fiz"], Fiz,
+                       {{"time_dimension", "t"},
+                        {"units", "kg m^-2 s^-2"},
+                        {"conversion", AA * SI::Mp * Nnorm * Cs0 * Omega_ci},
+                        {"standard_name", "ionisation momentum transfer"},
+                        {"long_name", "ionisation momentum transfer from plasma to neutrals"}});
+
+        set_with_attrs(state["Fcx"], Fcx,
+                       {{"time_dimension", "t"},
+                        {"units", "kg m^-2 s^-2"},
+                        {"conversion", AA * SI::Mp * Nnorm * Cs0 * Omega_ci},
+                        {"standard_name", "CX momentum transfer"},
+                        {"long_name", "CX momentum transfer from plasma to neutrals"}});
+
+        set_with_attrs(state["Erec"], Erec,
+                       {{"time_dimension", "t"},
+                        {"units", "W m^-3"},
+                        {"conversion", Pnorm * Omega_ci},
+                        {"standard_name", "recombination energy transfer"},
+                        {"long_name", "recombination energy transfer from plasma to neutrals"}});
+
+        set_with_attrs(state["Eiz"], Eiz,
+                       {{"time_dimension", "t"},
+                        {"units", "W m^-3"},
+                        {"conversion", Pnorm * Omega_ci},
+                        {"standard_name", "ionisation energy transfer"},
+                        {"long_name", "ionisation energy transfer from plasma to neutrals"}});
+
+        set_with_attrs(state["Ecx"], Ecx,
+                       {{"time_dimension", "t"},
+                        {"units", "W m^-3"},
+                        {"conversion", Pnorm * Omega_ci},
+                        {"standard_name", "CX energy transfer"},
+                        {"long_name", "CX energy transfer from plasma to neutrals"}});
+
+        set_with_attrs(state["Rrec"], Rrec,
+                       {{"time_dimension", "t"},
+                        {"units", "W m^-3"},
+                        {"conversion", Pnorm * Omega_ci},
+                        {"standard_name", "recombination radiated power"},
+                        {"long_name", "plasma recombination radiated power"}});
+
+        set_with_attrs(state["Riz"], Riz,
+                       {{"time_dimension", "t"},
+                        {"units", "W m^-3"},
+                        {"conversion", Pnorm * Omega_ci},
+                        {"standard_name", "ionisation radiated power"},
+                        {"long_name", "plasma ionisation radiated power"}});
+
+        set_with_attrs(state["Rzrad"], Rzrad,
+                       {{"time_dimension", "t"},
+                        {"units", "W m^-3"},
+                        {"conversion", Pnorm * Omega_ci},
+                        {"standard_name", "impurity radiated power"},
+                        {"long_name", "plasma impurity radiated power"}});
+
+        if (charge_exchange_escape) {
+          set_with_attrs(state["Dcx"], Dcx,
+                         {{"time_dimension", "t"},
+                          {"units", "m^-3 s^-1"},
+                          {"conversion", Nnorm * Omega_ci},
+                          {"standard_name", "CX neutral sink"},
+                          {"long_name", "sink of neutrals due to CX"}});
+
+          set_with_attrs(state["Dcx_T"], Dcx_T,
+                         {{"time_dimension", "t"},
+                          {"units", "m^-3 s^-1"},
+                          {"conversion", Pnorm * Omega_ci},
+                          {"standard_name", "CX neutral pressure sink"},
+                          {"long_name", "sink of neutral pressure due to CX"}});
+        }
+
+        if (elastic_scattering) {
+          set_with_attrs(state["Fel"], Fel,
+                         {{"time_dimension", "t"},
+                          {"units", "kg m^-2 s^-2"},
+                          {"conversion", AA * SI::Mp * Nnorm * Cs0 * Omega_ci},
+                          {"standard_name", "elastic momentum transfer"},
+                          {"long_name", "elastic momentum transfer from plasma to neutrals"}});
+
+          set_with_attrs(state["Eel"], Eel,
+                       {{"time_dimension", "t"},
+                        {"units", "W m^-3"},
+                        {"conversion", Pnorm * Omega_ci},
+                        {"standard_name", "elastic energy transfer"},
+                        {"long_name", "elastic energy transfer from plasma to neutrals"}});
+        }
+
+        if (excitation) {
+          set_with_attrs(state["Rex"], Rex,
+                         {{"time_dimension", "t"},
+                          {"units", "W m^-3"},
+                          {"conversion", Pnorm * Omega_ci},
+                          {"standard_name", "excitation radiated power"},
+                          {"long_name", "excitation radiated power"}});
+        }
+
+        if (evolve_nvn) {
+          set_with_attrs(state["Vn"], Vn,
+                         {{"time_dimension", "t"},
+                          {"units", "m / s"},
+                          {"conversion", Cs0},
+                          {"standard_name", "velocity"},
+                          {"long_name", "neutral parallel velocity"}});
+        }
+      }
+    }
+
+    if (output_ddt) {
+      set_with_attrs(state["ddt(Ne)"], ddt(Ne),
+                     {{"time_dimension", "t"},
+                      {"units", "m^-3 s^-1"},
+                      {"conversion", Nnorm * Omega_ci},
+                      {"long_name", "rate of change of plasma density"}});
+
+      set_with_attrs(state["ddt(P)"], ddt(P),
+                     {{"time_dimension", "t"},
+                      {"units", "Pa s^-1"},
+                      {"conversion", Pnorm * Omega_ci},
+                      {"long_name", "rate of change of plasma pressure"}});
+
+      set_with_attrs(state["ddt(NVi)"], ddt(NVi),
+                     {{"time_dimension", "t"},
+                      {"units", "kg m^-2 s^-2"},
+                      {"conversion", SI::Mp * Nnorm * Cs0 * Omega_ci},
+                      {"long_name", "rate of change of plasma momentum"}});
+
+      if (atomic) {
+        set_with_attrs(state["ddt(Nn)"], ddt(Nn),
+                       {{"time_dimension", "t"},
+                        {"units", "m^-3 s^-1"},
+                        {"conversion", Nnorm * Omega_ci},
+                        {"long_name", "rate of change of neutral density"}});
+
+        set_with_attrs(state["ddt(Pn)"], ddt(Pn),
+                       {{"time_dimension", "t"},
+                        {"units", "Pa s^-1"},
+                        {"conversion", Pnorm * Omega_ci},
+                        {"long_name", "rate of change of neutral pressure"}});
+
+        if (evolve_nvn) {
+          set_with_attrs(state["ddt(NVn)"], ddt(NVn),
+                         {{"time_dimension", "t"},
+                          {"units", "kg m^-2 s^-2"},
+                          {"conversion", SI::Mp * Nnorm * Cs0 * Omega_ci},
+                          {"long_name", "rate of change of neutral momentum"}});
+        }
+      }
+    }
+  }
+
+  void restartVars(Options& state) override {
+    AUTO_TRACE();
+
+    // NOTE: This is a hack because we know that the loaded restart file
+    //       is passed into restartVars in PhysicsModel::postInit
+    // The restart value should be used in init() rather than here
+    static bool first = true;
+    if (first and state.isSet("density_error_integral")) {
+      first = false;
+      density_error_integral = state["density_error_integral"].as<BoutReal>();
+    }
+
+    // Save the density error integral to restart file
+    state["density_error_integral"].force(density_error_integral);
+  }
+
 private:
   bool cfl_info; // Print additional information on CFL limits
+  bool diagnose; // Output additional diagnostics?
+  bool output_ddt; // Output time derivatives?
 
   // Normalisation parameters
   BoutReal Tnorm, Nnorm, Bnorm, AA;
