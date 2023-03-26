@@ -1159,7 +1159,7 @@ protected:
       if (rhs_explicit) {
         // Flux splitting with upwinding
         Field3D a = sqrt(gamma_sound * 2. * Te); // Local sound speed
-        ddt(NVi) = -FV::Div_par(NVi, Vi, a, bndry_flux_fix) // Momentum flow
+        ddt(NVi) = -FV::Div_par(NVi, Vi, a, false) // Momentum flow
                    - Grad_par(P);
 
         if (atomic) {
