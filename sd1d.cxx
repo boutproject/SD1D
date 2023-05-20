@@ -1707,6 +1707,9 @@ protected:
 
     state["SD1D_REVISION"].force(sd1d::version::revision);
 
+    // Ensure that metrics are updated
+    mesh->getCoordinates()->outputVars(state);
+
     // Write normalisation constants
 
     BoutReal Pnorm = SI::qe * Tnorm * Nnorm; // Pressure normalisation
