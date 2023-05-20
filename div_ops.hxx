@@ -24,7 +24,7 @@
 #ifndef __DIV_OPS_H__
 #define __DIV_OPS_H__
 
-#include <field3d.hxx>
+#include <bout/field3d.hxx>
 
 /*!
  * Parallel diffusion (in y)
