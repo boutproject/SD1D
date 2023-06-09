@@ -390,6 +390,8 @@ protected:
 
     mesh->communicate(Ne, NVi, P);
 
+    Field3D P_solver = P; // Save the pressure in the solver
+
     // Floor small values
     P = floor(P, 1e-10);
     Ne = floor(Ne, 1e-10);
@@ -398,7 +400,7 @@ protected:
 
     Vi = NVi / Ne;
 
-    Field3D Te = 0.5 * P / Ne; // Assuming Te = Ti
+    Field3D Te = 0.5 * P / Nelim; // Assuming Te = Ti
 
     for (auto &i : Te.getRegion("RGN_NOBNDRY")) {
       if (Te[i] > 10.)
@@ -1174,7 +1176,7 @@ protected:
       if (rhs_explicit) {
         // Flux splitting with upwinding
         Field3D a = sqrt(gamma_sound * 2. * Te); // Local sound speed
-        ddt(NVi) = -FV::Div_par(NVi, Vi, a, bndry_flux_fix) // Momentum flow
+        ddt(NVi) = -FV::Div_par(NVi, Vi, a, false) // Momentum flow
                    - Grad_par(P);
 
         if (atomic) {
@@ -1297,6 +1299,10 @@ protected:
         if (ADpar > 0.0) {
           ddt(P) += ADpar * AddedDissipation(1.0, P, P, true);
         }
+
+        // Force P towards value in solver.
+        // Note: This only impacts solutions where Ne < floor
+        ddt(P) += 2. * Te * Ne - P_solver;
       }
     }
 
