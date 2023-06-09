@@ -23,10 +23,10 @@
 #include "div_ops.hxx"
 
 #include <bout/mesh.hxx>
-#include <globals.hxx>
-#include <derivs.hxx>
-#include <output.hxx>
-#include <utils.hxx>
+#include <bout/globals.hxx>
+#include <bout/derivs.hxx>
+#include <bout/output.hxx>
+#include <bout/utils.hxx>
 #include <bout/assert.hxx>
 
 #include <cmath>

@@ -1,8 +1,8 @@
 
-#include <globals.hxx> // for mesh object
-#include <output.hxx>
-#include <boutexception.hxx>
-#include <utils.hxx>
+#include <bout/globals.hxx> // for mesh object
+#include <bout/output.hxx>
+#include <bout/boutexception.hxx>
+#include <bout/utils.hxx>
 
 #include "radiation.hxx"
 

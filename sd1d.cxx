@@ -40,8 +40,8 @@
 
 #include <bout/constants.hxx>
 #include <bout/physicsmodel.hxx>
-#include <derivs.hxx>
-#include <field_factory.hxx>
+#include <bout/derivs.hxx>
+#include <bout/field_factory.hxx>
 #include <bout/invert_pardiv.hxx>
 #include <bout/snb.hxx>
 #include <bout/fv_ops.hxx>
@@ -1876,7 +1876,7 @@ protected:
                         {"long_name", "neutral atom pressure source"}});
       }
 
-      if (mesh->lastY()) {
+      if (mesh->lastY(0)) {
         set_with_attrs(state["flux_ion"], flux_ion,
                        {{"units", "m^-2 s^-1"},
                         {"conversion", Nnorm * Cs0},

@@ -3,8 +3,8 @@
 #ifndef __RADIATION_H__
 #define __RADIATION_H__
 
-#include <field3d.hxx>
-#include <bout_types.hxx>
+#include <bout/field3d.hxx>
+#include <bout/bout_types.hxx>
 
 #include <vector>
 #include <cmath>
