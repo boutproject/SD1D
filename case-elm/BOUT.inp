@@ -1,0 +1,131 @@
+#
+# 
+
+nout = 100     # number of output time-steps
+timestep = 5000.  # time between outputs
+
+MZ = 1     # number of points in z direction (2^n + 1)
+MXG = 0    # No guard cells needed in X
+
+[mesh]
+
+ny = 200    # Resolution along field-line
+
+length = 25        # Length of the domain in meters
+length_xpt = length #12.5  # Length from midplane to X-point [m]
+
+dy = length / ny   # Parallel grid spacing [m]
+
+ypos = y * length / (2*pi) # Y position [m]
+
+nx = 1
+dx = 1
+ixseps1 = -1   # Branch-cut indices, specifying that
+ixseps2 = -1   # the grid is in the SOL
+
+# The following make the field-aligned
+# metric tensor an identity metric
+Rxy = 1
+Bpxy = 1
+Btxy = 0
+Bxy = 1
+hthe = 1
+sinty = 0
+
+symmetricGlobalY = true
+
+# Time integration solver
+[solver]
+
+mxstep = 100000  # Maximum number of internal steps per output
+
+atol = 1e-10
+rtol = 1e-5
+
+use_precon=false
+
+[sd1d]
+
+diagnose = true  # Output additional diagnostics
+
+# Normalisation factors
+Nnorm = 1e20  # Reference density [m^-3]
+Tnorm = 100   # Reference temperature [eV]
+Bnorm = 1.0   # Reference magnetic field [T]
+AA = 2.0      # Ion atomic number
+
+Eionize = 30  # Energy lost per ionisation [eV]
+
+volume_source = true   # Sources spread over a volume
+density_upstream = -1  # Fix upstream density using feedback (<0 = off)
+
+# Model parameters
+vwall = 0.0        # Velocity of neutrals at the wall, as fraction of Franck-Condon energy
+
+frecycle = 0.9             # Recycling fraction
+fredistribute = 0.0        # Fraction of recycled neutrals redistributed evenly along length
+redist_weight = H(y - pi)  # Weighting for redistribution
+
+gaspuff = 0        # NOTE: In normalised units 
+dneut    = 10.0     # Scale neutral gas diffusion rate
+nloss    = 1e3     # Neutral gas loss rate [1/s]
+fimp = -1         # Impurity fraction
+
+sheath_gamma = 6 # Sheath heat transmission
+neutral_gamma = 0.  # Neutral gas heat transmission
+density_sheath = 0  # 0 = free, 1 = Neumann, 2 = constant nV
+pressure_sheath = 0  # 0 = free, 1 = Neumann, 2 = constant (5/2)Pv + (1/2)nv^3
+
+atomic = false      # Include atomic processes (CX/iz/rc)
+
+# Set flux tube area as function of parallel grid index
+# using normalised y coordinate from 0 to 2pi
+area = 1 #+ (mesh:area_expansion - 1) * H(mesh:ypos - mesh:length_xpt)*(mesh:ypos - mesh:length_xpt)/(mesh:length - mesh:length_xpt)
+
+hyper = -1 # Numerical diffusion parameter on all terms
+ADpar = -1  # 4th-order numerical dissipation
+viscos = -0.0001 # Parallel viscosity ( < 0 = off )
+ion_viscosity = false  # Braginskii parallel ion viscosity (ions and neutrals)
+
+heat_conduction = false # Heat conduction
+
+time_dependent_source = true
+
+[all]
+bndry_all = neumann_o2  # Default boundary condition
+                        # Note: Sheath boundary applied in code
+
+[Ne] # Electron density 
+scale = 1
+
+NeElm = 1e-5
+width = 10000
+ElmPrefactor =  exp(-((t-200000)/width)^2)
+
+# Initial conditions
+function = 0.1
+
+flux = 4e23  # Particles per m^2 per second input
+source = (flux/(mesh:length_xpt))*H(mesh:length_xpt - mesh:ypos)  # Particle input source
+                           # as function of normalised y coordinate
+
+[NVi]  # Parallel ion momentum
+scale = 1
+vtarg = 0.3
+function = vtarg * Ne:scale * Ne:function * y / (2*pi)  # Linear from 0 to 0.03 in y
+
+[P]    # Plasma pressure P = 2 * Ne * T
+scale = 1
+
+PElm = 1e-5
+
+function=0.1   # Initial constant pressure
+
+powerflux = 2e7  # Input power flux in W/m^2
+
+source = (powerflux*2/3 / (mesh:length_xpt))*H(mesh:length_xpt - mesh:ypos)  # Input power as function of y
+
+# 1e7 W/m^2 / (L/2) with  L = 100 m , factor of 2 because power only from y = 0 to y=pi
+# * 2/3 to get from energy to Pe
+
+
