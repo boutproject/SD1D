@@ -1,6 +1,6 @@
-[!WARNING]
-SD1D is no longer actively maintained. Contributions are welcome, but
-users are strongly advised to migrate to using [Hermes-3](https://github.com/bendudson/hermes-3/) instead. 
+> [!WARNING]
+> SD1D is no longer actively maintained. Contributions are welcome, but
+> users are strongly advised to migrate to using [Hermes-3](https://github.com/bendudson/hermes-3/) instead. 
 
 SD1D
 ====
